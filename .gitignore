@@ -1,0 +1,19 @@
+# data
+Final Project data/
+data/
+__MACOSX/
+
+# model outputs
+outputs/
+*.pt
+*.pth
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# vscode/system
+.vscode/
+.DS_Store
