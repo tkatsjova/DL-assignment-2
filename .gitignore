@@ -1,29 +1,19 @@
-# Data (too large for git)
+# data
+Final Project data/
 data/
-Intra/
-Cross/
-*.h5
+__MACOSX/
 
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-.env
-venv/
-.venv/
-env/
-
-# Jupyter
-.ipynb_checkpoints/
-*.ipynb
-
-# Models & outputs
+# model outputs
+outputs/
 *.pt
 *.pth
-*.ckpt
-results/
-logs/
 
-# OS
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# vscode/system
+.vscode/
 .DS_Store
-Thumbs.db
