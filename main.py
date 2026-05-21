@@ -7,7 +7,7 @@ from src.model import ResNet1D
 
 
 def main():
-    data_dir = Path("Final Project data") / "Final Project data"
+    data_dir = Path("Final Project data")
     train_folder = data_dir / "Intra" / "train"
 
     dataset = MEGWindowDataset(
