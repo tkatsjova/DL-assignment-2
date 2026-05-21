@@ -2,7 +2,7 @@ import numpy as np
 from scipy.signal import decimate
 
 
-def zscore_per_sensor(x: np.ndarray, eps: float = 1e-8) -> np.ndarray:
+def zscore_per_sensor(x: np.ndarray, eps: float = 1e-15) -> np.ndarray:
     mean = x.mean(axis=1, keepdims=True)
     std = x.std(axis=1, keepdims=True)
     return ((x - mean) / (std + eps)).astype(np.float32)

@@ -5,26 +5,49 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
-from src.data_loading import load_folder_metadata, load_h5_file
-from src.preprocessing import preprocess_recording
+from src.data.data_loading import (
+    load_folder_metadata,
+    load_h5_file,
+    extract_label_from_filename,
+    extract_subject_id_from_filename,
+    ID_TO_LABEL,
+)
+from src.data.preprocessing import preprocess_recording
 
 
 class MEGWindowDataset(Dataset):
     def __init__(
         self,
-        folder: Path,
         original_sampling_rate: int = 2034,
         downsample_factor: int = 4,
         window_seconds: float = 2.0,
         overlap: float = 0.5,
+        folder: Path | None = None,
+        files: list[Path] | None = None,
         max_files: int | None = None,
     ) -> None:
-        self.folder = folder
+        # Accept either a folder (scan all files inside)
+        # or an explicit list of files (e.g. a chunk for cross-subject training).
+        # This lets the same class handle both scenarios without duplicating code.
+        if files is not None:
+            metadata = [
+                {
+                    "file_path": f,
+                    "label": extract_label_from_filename(f),
+                    "label_name": ID_TO_LABEL[extract_label_from_filename(f)],
+                    "subject_id": extract_subject_id_from_filename(f),
+                }
+                for f in files
+            ]
+        elif folder is not None:
+            metadata = load_folder_metadata(folder)
+        else:
+            raise ValueError("Provide either 'folder' or 'files'")
 
-        metadata = load_folder_metadata(folder)
         if max_files is not None:
             metadata = metadata[:max_files]
 
+        self.folder = folder
         self.metadata = metadata
         self.file_names = []
         self.subject_ids = []
@@ -32,7 +55,8 @@ class MEGWindowDataset(Dataset):
         windows_per_file = []
         labels_per_file = []
 
-        print(f"\nBuilding dataset from: {folder}")
+        source = folder if folder is not None else f"{len(metadata)} files"
+        print(f"\nBuilding dataset from: {source}")
         print(f"Number of files: {len(metadata)}")
 
         for item in tqdm(metadata, desc="Preprocessing files"):

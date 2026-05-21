@@ -1,3 +1,4 @@
+import random
 from pathlib import Path
 from collections import Counter, defaultdict
 
@@ -8,9 +9,10 @@ import torch.optim as optim
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 from tqdm import tqdm
 
-from src.data_loading import ID_TO_LABEL
-from src.dataset import MEGWindowDataset, create_dataloader
-from src.model import SimpleCNN1D, ResNet1D, CNNGRU
+from src.data.config import ORIGINAL_SAMPLING_RATE, DOWNSAMPLE_FACTOR, WINDOW_SECONDS, OVERLAP
+from src.data.data_loading import ID_TO_LABEL, list_h5_files
+from src.data.dataset import MEGWindowDataset, create_dataloader
+from src.models.model import SimpleCNN1D, ResNet1D, CNNGRU
 
 
 MODEL_NAME = "cnn_gru"   # options: "simple_cnn", "resnet", "cnn_gru"
@@ -30,6 +32,8 @@ def get_model(name: str, device: torch.device):
     if name == "cnn_gru":
         return CNNGRU(num_channels=248, num_classes=4).to(device)
 
+    raise ValueError(f"Unknown model: {name}")
+
 
 def get_save_path(name: str, output_dir: Path):
     if name == "simple_cnn":
@@ -40,6 +44,8 @@ def get_save_path(name: str, output_dir: Path):
 
     if name == "cnn_gru":
         return output_dir / "best_intra_cnngru.pt"
+
+    raise ValueError(f"Unknown model: {name}")
 
 def train_one_epoch(model, loader, loss_fn, optimizer, device):
     model.train()
@@ -160,7 +166,7 @@ def show_results(title, y_true, y_pred):
 
 
 def main():
-    data_dir = Path("Final Project data") / "Final Project data"
+    data_dir = Path("../../Final Project data")
     output_dir = Path("outputs")
     output_dir.mkdir(exist_ok=True)
 
@@ -173,24 +179,35 @@ def main():
     print(f"Using device: {device}")
     print(f"Training model: {MODEL_NAME}")
 
-    train_data = MEGWindowDataset(
-        folder=train_folder,
-        original_sampling_rate=2034,
-        downsample_factor=4,
-        window_seconds=2.0,
-        overlap=0.5,
+    dataset_params = dict(
+        original_sampling_rate=ORIGINAL_SAMPLING_RATE,
+        downsample_factor=DOWNSAMPLE_FACTOR,
+        window_seconds=WINDOW_SECONDS,
+        overlap=OVERLAP,
     )
 
-    test_data = MEGWindowDataset(
-        folder=test_folder,
-        original_sampling_rate=2034,
-        downsample_factor=4,
-        window_seconds=2.0,
-        overlap=0.5,
-    )
+    # Split train folder files 80/20 into train and val.
+    # We split by file (not by window) to avoid data leakage —
+    # windows from the same file are very similar to each other,
+    # so mixing them across train/val would give artificially high val accuracy.
+    all_train_files = list_h5_files(train_folder)
+    random.seed(42)
+    random.shuffle(all_train_files)  # shuffle before split so val isn't just the last chunk
+    split       = int(len(all_train_files) * 0.8)
+    train_files = all_train_files[:split]
+    val_files   = all_train_files[split:]
+
+    print(f"\nTrain files: {len(train_files)} | Val files: {len(val_files)}")
+
+    train_data = MEGWindowDataset(files=train_files, **dataset_params)
+    val_data   = MEGWindowDataset(files=val_files,   **dataset_params)
+
+    # Test set is loaded but not touched until final evaluation
+    test_data  = MEGWindowDataset(folder=test_folder, **dataset_params)
 
     train_loader = create_dataloader(train_data, batch_size=16, shuffle=True)
-    test_loader = create_dataloader(test_data, batch_size=16, shuffle=False)
+    val_loader   = create_dataloader(val_data,   batch_size=16, shuffle=False)
+    test_loader  = create_dataloader(test_data,  batch_size=16, shuffle=False)
 
     model = get_model(MODEL_NAME, device)
     loss_fn = nn.CrossEntropyLoss()
@@ -202,7 +219,7 @@ def main():
     )
 
     n_epochs = 40
-    best_acc = 0.0
+    best_val_acc = 0.0
 
     print("\nStarting intra-subject training...")
 
@@ -215,48 +232,48 @@ def main():
             device=device,
         )
 
-        test_loss, test_acc = check_accuracy(
+        # Use val set (not test) to monitor progress and select best model.
+        # Test set is never seen during training.
+        val_loss, val_acc = check_accuracy(
             model=model,
-            loader=test_loader,
+            loader=val_loader,
             loss_fn=loss_fn,
             device=device,
         )
 
         print(
             f"Epoch {epoch:02d}/{n_epochs} | "
-            f"Train loss: {train_loss:.4f} | "
-            f"Train acc: {train_acc:.4f} | "
-            f"Test loss: {test_loss:.4f} | "
-            f"Test acc: {test_acc:.4f}"
+            f"Train loss: {train_loss:.4f} | Train acc: {train_acc:.4f} | "
+            f"Val loss: {val_loss:.4f} | Val acc: {val_acc:.4f}"
         )
 
-        if test_acc > best_acc:
-            best_acc = test_acc
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
 
             torch.save(
                 {
                     "model_state_dict": model.state_dict(),
-                    "test_accuracy": best_acc,
+                    "val_accuracy": best_val_acc,
                     "epoch": epoch,
                     "model_name": MODEL_NAME,
                 },
                 save_path,
             )
 
-            print(f"Saved new best model to: {save_path}")
+            print(f"Saved new best model (val acc: {best_val_acc:.4f}) to: {save_path}")
 
     print("\nTraining complete.")
-    print(f"Best window-level test accuracy during training: {best_acc:.4f}")
+    print(f"Best val accuracy: {best_val_acc:.4f}")
 
-    print("\nLoading best checkpoint for final evaluation...")
+    # Load best checkpoint and run final evaluation on the held-out test set
+    print("\nLoading best checkpoint for final evaluation on test set...")
     checkpoint = torch.load(save_path, map_location=device)
 
     model = get_model(MODEL_NAME, device)
     model.load_state_dict(checkpoint["model_state_dict"])
 
-    print(f"Loaded checkpoint: {save_path}")
-    print(f"Best epoch: {checkpoint['epoch']}")
-    print(f"Best saved test accuracy: {checkpoint['test_accuracy']:.4f}")
+    print(f"Loaded checkpoint from epoch {checkpoint['epoch']}")
+    print(f"Val accuracy at that epoch: {checkpoint['val_accuracy']:.4f}")
 
     window_preds, window_labels = predict_windows(
         model=model,
@@ -266,7 +283,7 @@ def main():
     )
 
     show_results(
-        title="Final window-level evaluation",
+        title="Final window-level evaluation on test set",
         y_true=window_labels,
         y_pred=window_preds,
     )
@@ -278,7 +295,7 @@ def main():
     )
 
     show_results(
-        title="Final file-level majority-vote evaluation",
+        title="Final file-level majority-vote evaluation on test set",
         y_true=file_labels,
         y_pred=file_preds,
     )

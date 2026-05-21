@@ -1,42 +1,64 @@
+"""
+Entry point for data preparation and exploratory analysis.
+
+Run this first to verify the dataset is accessible and generate EDA plots:
+    python main.py
+"""
+
 from pathlib import Path
 
-import torch
+from src.data.data_loading import inspect_folder
+from src.data.eda import (
+    plot_raw_vs_normalised,
+    plot_class_balance,
+    plot_signal_per_class,
+    plot_value_distribution,
+)
 
-from src.dataset import MEGWindowDataset, create_dataloader
-from src.model import ResNet1D
+DATA_DIR   = Path("Final Project data")
+OUTPUT_DIR = Path("outputs") / "eda"
 
 
-def main():
-    data_dir = Path("Final Project data") / "Final Project data"
-    train_folder = data_dir / "Intra" / "train"
+def main() -> None:
+    intra_train  = DATA_DIR / "Intra" / "train"
+    intra_test   = DATA_DIR / "Intra" / "test"
+    cross_train  = DATA_DIR / "Cross" / "train"
+    cross_test1  = DATA_DIR / "Cross" / "test1"
+    cross_test2  = DATA_DIR / "Cross" / "test2"
+    cross_test3  = DATA_DIR / "Cross" / "test3"
 
-    dataset = MEGWindowDataset(
-        folder=train_folder,
-        original_sampling_rate=2034,
-        downsample_factor=4,
-        window_seconds=2.0,
-        overlap=0.5,
-    )
+    # ── 1. Dataset inspection ──────────────────────────────────────────────────
+    print("=== Dataset Inspection ===")
+    inspect_folder(intra_train)
+    inspect_folder(intra_test)
+    inspect_folder(cross_train)
+    inspect_folder(cross_test1)
+    inspect_folder(cross_test2)
+    inspect_folder(cross_test3)
 
-    loader = create_dataloader(
-        dataset,
-        batch_size=8,
-        shuffle=True,
-    )
+    # ── 2. EDA plots ───────────────────────────────────────────────────────────
+    print("\n=== Generating EDA Plots ===\n")
 
-    x, y = next(iter(loader))
+    print("Plot 1: Raw vs Normalised signal...")
+    plot_raw_vs_normalised(intra_train)
 
-    print("\nBatch check")
-    print(f"x shape: {x.shape}")
-    print(f"y shape: {y.shape}")
-    print(f"y values: {y}")
+    print("Plot 2: Class balance...")
+    plot_class_balance({
+        "Intra/train":  intra_train,
+        "Intra/test":   intra_test,
+        "Cross/train":  cross_train,
+        "Cross/test1":  cross_test1,
+        "Cross/test2":  cross_test2,
+        "Cross/test3":  cross_test3,
+    })
 
-    model = ResNet1D(num_channels=248, num_classes=4)
-    logits = model(x)
+    print("Plot 3: Signal per class...")
+    plot_signal_per_class(intra_train)
 
-    print("\nModel check")
-    print(f"logits shape: {logits.shape}")
-    print(f"predictions: {torch.argmax(logits, dim=1)}")
+    print("Plot 4: Value distribution...")
+    plot_value_distribution(intra_train)
+
+    print(f"\nDone. Plots saved to: {OUTPUT_DIR}/")
 
 
 if __name__ == "__main__":

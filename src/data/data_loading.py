@@ -26,7 +26,7 @@ def load_h5_file(file_path: Path) -> np.ndarray:
         if name in f:
             data = f[name][()]
         else:
-            # just in case the internal dataset name is different
+            # fallback in case the internal dataset name differs from the filename
             first_key = list(f.keys())[0]
             data = f[first_key][()]
 

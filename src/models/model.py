@@ -58,7 +58,7 @@ class ResidualBlock1D(nn.Module):
         else:
             self.skip = nn.Identity()
 
-        self.relu = nn.ReLU()
+        self.relu    = nn.ReLU()
         self.dropout = nn.Dropout(0.05)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -137,8 +137,6 @@ class CNNGRU(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.cnn(x)
         x = x.transpose(1, 2)
-
         gru_output, _ = self.gru(x)
         x = gru_output.mean(dim=1)
-
         return self.classifier(x)
