@@ -4,9 +4,8 @@
 __MACOSX/
 
 # model outputs
-outputs/
-*.pt
-*.pth
+outputs/*.pt
+outputs/*.pth
 
 # python
 __pycache__/
