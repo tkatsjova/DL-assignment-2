@@ -1,6 +1,8 @@
+import json
 import random
-from pathlib import Path
+import time
 from collections import Counter, defaultdict
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -10,174 +12,224 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 from tqdm import tqdm
 
 from src.data.config import ORIGINAL_SAMPLING_RATE, DOWNSAMPLE_FACTOR, WINDOW_SECONDS, OVERLAP
-from src.data.data_loading import ID_TO_LABEL, list_h5_files
+from src.data.data_loading import ID_TO_LABEL, list_h5_files, extract_label_from_filename
 from src.data.dataset import MEGWindowDataset, create_dataloader
-from src.models.model import SimpleCNN1D, ResNet1D, CNNGRU
+from src.models.model import SimpleCNN1D, ResNet1D, CNNGRU, EEGNet, CNNLSTMAttention, MEGGraphNet
+
+N_TIMEPOINTS = int(WINDOW_SECONDS * ORIGINAL_SAMPLING_RATE / DOWNSAMPLE_FACTOR)
 
 
-MODEL_NAME = "cnn_gru"   # options: "simple_cnn", "resnet", "cnn_gru"
+MODEL_NAME = "cnn_gru"
+# options: "simple_cnn" | "resnet" | "cnn_gru" | "eegnet" | "cnn_lstm_attn" | "meg_graphnet"
+
+SEED       = 42
+N_EPOCHS   = 100   # early stopping decides the actual stopping point
+BATCH_SIZE = 16
+LR         = 1e-3
+# early stopping: stop if val_acc hasn't improved for this many epochs
+ES_PATIENCE  = 15
+# LR scheduler: halve LR if val_loss doesn't improve for this many epochs
+LR_PATIENCE  = 7
+
+# Auto-suffix encodes key hyperparameters so each experiment saves to its own
+# file — change LR or BATCH_SIZE and results won't overwrite each other.
+RUN_SUFFIX = f"_lr{LR:.0e}_bs{BATCH_SIZE}"
 
 
-def get_device():
+# ---------------------------------------------------------------------------
+# Reproducibility
+# ---------------------------------------------------------------------------
+
+def set_seed(seed: int = SEED) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+# ---------------------------------------------------------------------------
+# Stratified file-level train / val split
+# Splits files per class so that every class is equally represented in val.
+# With 8 files per class and val_ratio=0.2 → 6 train + 2 val per class.
+# ---------------------------------------------------------------------------
+
+def stratified_split(
+    files: list[Path],
+    val_ratio: float = 0.2,
+    seed: int = SEED,
+) -> tuple[list[Path], list[Path]]:
+    by_label: dict[int, list[Path]] = defaultdict(list)
+    for f in files:
+        by_label[extract_label_from_filename(f)].append(f)
+
+    rng = random.Random(seed)
+    train_files, val_files = [], []
+
+    for label in sorted(by_label):
+        label_files = by_label[label][:]
+        rng.shuffle(label_files)
+        n_val = max(1, round(len(label_files) * val_ratio))
+        val_files.extend(label_files[:n_val])
+        train_files.extend(label_files[n_val:])
+
+    return train_files, val_files
+
+
+# ---------------------------------------------------------------------------
+# Model registry
+# ---------------------------------------------------------------------------
+
+def get_device() -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def get_model(name: str, device: torch.device):
-    if name == "simple_cnn":
-        return SimpleCNN1D(num_channels=248, num_classes=4).to(device)
+def get_model(name: str, device: torch.device) -> nn.Module:
+    models = {
+        "simple_cnn":    lambda: SimpleCNN1D(num_channels=248, num_classes=4),
+        "resnet":        lambda: ResNet1D(num_channels=248, num_classes=4),
+        "cnn_gru":       lambda: CNNGRU(num_channels=248, num_classes=4),
+        "eegnet":        lambda: EEGNet(n_channels=248, n_timepoints=N_TIMEPOINTS, n_classes=4),
+        "cnn_lstm_attn": lambda: CNNLSTMAttention(n_channels=248, n_classes=4),
+        "meg_graphnet":  lambda: MEGGraphNet(n_nodes=248, n_timepoints=N_TIMEPOINTS, n_classes=4),
+    }
+    if name not in models:
+        raise ValueError(f"Unknown model '{name}'. Options: {list(models)}")
+    return models[name]().to(device)
 
-    if name == "resnet":
-        return ResNet1D(num_channels=248, num_classes=4).to(device)
 
-    if name == "cnn_gru":
-        return CNNGRU(num_channels=248, num_classes=4).to(device)
-
-    raise ValueError(f"Unknown model: {name}")
+def get_save_path(name: str, output_dir: Path) -> Path:
+    return output_dir / f"best_intra_{name}{RUN_SUFFIX}.pt"
 
 
-def get_save_path(name: str, output_dir: Path):
-    if name == "simple_cnn":
-        return output_dir / "best_intra_cnn1d.pt"
-
-    if name == "resnet":
-        return output_dir / "best_intra_resnet1d.pt"
-
-    if name == "cnn_gru":
-        return output_dir / "best_intra_cnngru.pt"
-
-    raise ValueError(f"Unknown model: {name}")
+# ---------------------------------------------------------------------------
+# Train / eval helpers
+# ---------------------------------------------------------------------------
 
 def train_one_epoch(model, loader, loss_fn, optimizer, device):
     model.train()
-
-    total_loss = 0
-    total_correct = 0
-    total_items = 0
+    total_loss = total_correct = total_items = 0
 
     for x, y in tqdm(loader, desc="Training", leave=False):
-        x = x.to(device)
-        y = y.to(device)
-
+        x, y = x.to(device), y.to(device)
         optimizer.zero_grad()
-
         logits = model(x)
-        loss = loss_fn(logits, y)
-
+        loss   = loss_fn(logits, y)
         loss.backward()
         optimizer.step()
 
-        batch_size = x.size(0)
-        total_loss += loss.item() * batch_size
+        n = x.size(0)
+        total_loss    += loss.item() * n
         total_correct += (logits.argmax(dim=1) == y).sum().item()
-        total_items += batch_size
+        total_items   += n
 
     return total_loss / total_items, total_correct / total_items
 
 
 def check_accuracy(model, loader, loss_fn, device):
     model.eval()
-
-    total_loss = 0
-    total_correct = 0
-    total_items = 0
+    total_loss = total_correct = total_items = 0
 
     with torch.no_grad():
         for x, y in tqdm(loader, desc="Evaluating", leave=False):
-            x = x.to(device)
-            y = y.to(device)
-
+            x, y = x.to(device), y.to(device)
             logits = model(x)
-            loss = loss_fn(logits, y)
+            loss   = loss_fn(logits, y)
 
-            batch_size = x.size(0)
-            total_loss += loss.item() * batch_size
+            n = x.size(0)
+            total_loss    += loss.item() * n
             total_correct += (logits.argmax(dim=1) == y).sum().item()
-            total_items += batch_size
+            total_items   += n
 
     return total_loss / total_items, total_correct / total_items
 
 
 def predict_windows(model, dataset, device, batch_size=16):
     model.eval()
-
-    preds = []
-    labels = []
+    preds, labels = [], []
 
     with torch.no_grad():
         for start in range(0, len(dataset), batch_size):
             stop = min(start + batch_size, len(dataset))
-
-            x = torch.from_numpy(dataset.X[start:stop]).to(device)
-            y = dataset.y[start:stop]
-
+            x    = torch.from_numpy(dataset.X[start:stop]).to(device)
             logits = model(x)
-            batch_preds = logits.argmax(dim=1).cpu().numpy()
-
-            preds.extend(batch_preds)
-            labels.extend(y)
+            preds.extend(logits.argmax(dim=1).cpu().numpy())
+            labels.extend(dataset.y[start:stop])
 
     return np.array(preds), np.array(labels)
 
 
 def majority_vote_by_file(preds, labels, file_names):
-    file_preds = defaultdict(list)
+    file_preds  = defaultdict(list)
     file_labels = {}
 
-    for pred, label, file_name in zip(preds, labels, file_names):
-        file_preds[file_name].append(pred)
-        file_labels[file_name] = label
+    for pred, label, fname in zip(preds, labels, file_names):
+        file_preds[fname].append(pred)
+        file_labels[fname] = label
 
-    final_preds = []
-    final_labels = []
-
-    for file_name, pred_list in file_preds.items():
-        vote = Counter(pred_list).most_common(1)[0][0]
-        final_preds.append(vote)
-        final_labels.append(file_labels[file_name])
+    final_preds, final_labels = [], []
+    for fname, pred_list in file_preds.items():
+        final_preds.append(Counter(pred_list).most_common(1)[0][0])
+        final_labels.append(file_labels[fname])
 
     return np.array(final_preds), np.array(final_labels)
 
 
 def show_results(title, y_true, y_pred):
     class_names = [ID_TO_LABEL[i] for i in range(4)]
-
     print("\n" + "=" * 80)
     print(title)
     print("=" * 80)
-
     print(f"Accuracy: {accuracy_score(y_true, y_pred):.4f}")
-
     print("\nPrediction counts:")
     for class_id, count in sorted(Counter(y_pred).items()):
-        print(f"{ID_TO_LABEL[class_id]}: {count}")
-
+        print(f"  {ID_TO_LABEL[class_id]}: {count}")
     print("\nClassification report:")
-    print(
-        classification_report(
-            y_true,
-            y_pred,
-            target_names=class_names,
-            zero_division=0,
-        )
-    )
-
+    print(classification_report(y_true, y_pred, target_names=class_names, zero_division=0))
     print("Confusion matrix:")
     print(confusion_matrix(y_true, y_pred))
 
 
+def collect_metrics(y_true, y_pred) -> dict:
+    """Return a serialisable dict with all metrics needed for the report."""
+    class_names = [ID_TO_LABEL[i] for i in range(4)]
+    report = classification_report(
+        y_true, y_pred, target_names=class_names, zero_division=0, output_dict=True
+    )
+    return {
+        "accuracy":           float(accuracy_score(y_true, y_pred)),
+        "confusion_matrix":   confusion_matrix(y_true, y_pred).tolist(),
+        # per-class precision / recall / f1 — needed for (b) analysis
+        "per_class": {
+            cls: {
+                "precision": report[cls]["precision"],
+                "recall":    report[cls]["recall"],
+                "f1":        report[cls]["f1-score"],
+            }
+            for cls in class_names
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
 def main():
-    data_dir = Path("../../Final Project data")
+    set_seed(SEED)
+
+    data_dir   = Path("Final Project data")
     output_dir = Path("outputs")
     output_dir.mkdir(exist_ok=True)
 
     train_folder = data_dir / "Intra" / "train"
-    test_folder = data_dir / "Intra" / "test"
 
-    device = get_device()
+    device    = get_device()
     save_path = get_save_path(MODEL_NAME, output_dir)
 
-    print(f"Using device: {device}")
-    print(f"Training model: {MODEL_NAME}")
+    print(f"Device:  {device}")
+    print(f"Model:   {MODEL_NAME}")
+    print(f"Seed:    {SEED}")
 
     dataset_params = dict(
         original_sampling_rate=ORIGINAL_SAMPLING_RATE,
@@ -186,119 +238,113 @@ def main():
         overlap=OVERLAP,
     )
 
-    # Split train folder files 80/20 into train and val.
-    # We split by file (not by window) to avoid data leakage —
-    # windows from the same file are very similar to each other,
-    # so mixing them across train/val would give artificially high val accuracy.
-    all_train_files = list_h5_files(train_folder)
-    random.seed(42)
-    random.shuffle(all_train_files)  # shuffle before split so val isn't just the last chunk
-    split       = int(len(all_train_files) * 0.8)
-    train_files = all_train_files[:split]
-    val_files   = all_train_files[split:]
+    # Stratified 80/20 split — each class contributes equally to val
+    all_train_files          = list_h5_files(train_folder)
+    train_files, val_files   = stratified_split(all_train_files, val_ratio=0.2, seed=SEED)
 
     print(f"\nTrain files: {len(train_files)} | Val files: {len(val_files)}")
+    val_label_counts = Counter(extract_label_from_filename(f) for f in val_files)
+    print(f"Val class distribution: { {ID_TO_LABEL[k]: v for k, v in sorted(val_label_counts.items())} }")
 
     train_data = MEGWindowDataset(files=train_files, **dataset_params)
     val_data   = MEGWindowDataset(files=val_files,   **dataset_params)
 
-    # Test set is loaded but not touched until final evaluation
-    test_data  = MEGWindowDataset(folder=test_folder, **dataset_params)
+    train_loader = create_dataloader(train_data, batch_size=BATCH_SIZE, shuffle=True)
+    val_loader   = create_dataloader(val_data,   batch_size=BATCH_SIZE, shuffle=False)
 
-    train_loader = create_dataloader(train_data, batch_size=16, shuffle=True)
-    val_loader   = create_dataloader(val_data,   batch_size=16, shuffle=False)
-    test_loader  = create_dataloader(test_data,  batch_size=16, shuffle=False)
-
-    model = get_model(MODEL_NAME, device)
+    model   = get_model(MODEL_NAME, device)
     loss_fn = nn.CrossEntropyLoss()
 
-    optimizer = optim.AdamW(
-        model.parameters(),
-        lr=1e-3,
-        weight_decay=1e-4,
+    optimizer = optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-4)
+
+    # Halve LR when val_loss stops improving for LR_PATIENCE epochs
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode="min",
+        factor=0.5,
+        patience=LR_PATIENCE,
     )
 
-    n_epochs = 40
-    best_val_acc = 0.0
+    best_val_acc  = 0.0
+    best_val_loss = float("inf")
+    es_counter    = 0          # epochs since last val_acc improvement
+    history       = []         # one dict per epoch, for plotting / reporting
 
-    print("\nStarting intra-subject training...")
+    print(f"\nStarting intra-subject training (max {N_EPOCHS} epochs, "
+          f"early stop patience={ES_PATIENCE})...\n")
 
-    for epoch in range(1, n_epochs + 1):
-        train_loss, train_acc = train_one_epoch(
-            model=model,
-            loader=train_loader,
-            loss_fn=loss_fn,
-            optimizer=optimizer,
-            device=device,
-        )
+    t_start = time.time()
 
-        # Use val set (not test) to monitor progress and select best model.
-        # Test set is never seen during training.
-        val_loss, val_acc = check_accuracy(
-            model=model,
-            loader=val_loader,
-            loss_fn=loss_fn,
-            device=device,
-        )
+    for epoch in range(1, N_EPOCHS + 1):
+        train_loss, train_acc = train_one_epoch(model, train_loader, loss_fn, optimizer, device)
+        val_loss,   val_acc   = check_accuracy(model, val_loader,   loss_fn, device)
 
+        current_lr = optimizer.param_groups[0]["lr"]
         print(
-            f"Epoch {epoch:02d}/{n_epochs} | "
-            f"Train loss: {train_loss:.4f} | Train acc: {train_acc:.4f} | "
-            f"Val loss: {val_loss:.4f} | Val acc: {val_acc:.4f}"
+            f"Epoch {epoch:03d}/{N_EPOCHS} | "
+            f"Train loss: {train_loss:.4f}  acc: {train_acc:.4f} | "
+            f"Val loss: {val_loss:.4f}  acc: {val_acc:.4f} | "
+            f"LR: {current_lr:.2e}"
         )
 
-        if val_acc > best_val_acc:
-            best_val_acc = val_acc
+        history.append(dict(
+            epoch=epoch,
+            train_loss=train_loss, train_acc=train_acc,
+            val_loss=val_loss,     val_acc=val_acc,
+        ))
 
+        # Step scheduler on val_loss
+        scheduler.step(val_loss)
+
+        # Save best model (tracked by val_acc)
+        if val_acc > best_val_acc:
+            best_val_acc  = val_acc
+            best_val_loss = val_loss
+            es_counter    = 0
             torch.save(
                 {
                     "model_state_dict": model.state_dict(),
-                    "val_accuracy": best_val_acc,
-                    "epoch": epoch,
-                    "model_name": MODEL_NAME,
+                    "val_accuracy":     best_val_acc,
+                    "val_loss":         best_val_loss,
+                    "epoch":            epoch,
+                    "model_name":       MODEL_NAME,
+                    "history":          history,
                 },
                 save_path,
             )
+            print(f"  → Saved best model (val acc: {best_val_acc:.4f})")
+        else:
+            es_counter += 1
+            if es_counter >= ES_PATIENCE:
+                print(f"\nEarly stopping: val_acc hasn't improved for {ES_PATIENCE} epochs.")
+                break
 
-            print(f"Saved new best model (val acc: {best_val_acc:.4f}) to: {save_path}")
+    training_time_s = time.time() - t_start
+    # train acc at the last completed epoch — used for (d): train vs test gap
+    final_train_acc = history[-1]["train_acc"] if history else 0.0
 
-    print("\nTraining complete.")
-    print(f"Best val accuracy: {best_val_acc:.4f}")
+    print(f"\nTraining finished in {training_time_s:.1f}s. Best val accuracy: {best_val_acc:.4f}")
 
-    # Load best checkpoint and run final evaluation on the held-out test set
-    print("\nLoading best checkpoint for final evaluation on test set...")
-    checkpoint = torch.load(save_path, map_location=device)
+    checkpoint = torch.load(save_path, map_location=device, weights_only=False)
+    n_params = sum(p.numel() for p in model.parameters())
 
-    model = get_model(MODEL_NAME, device)
-    model.load_state_dict(checkpoint["model_state_dict"])
+    results = {
+        "model_name":       MODEL_NAME,
+        "n_params":         n_params,
+        "seed":             SEED,
+        "lr":               LR,
+        "batch_size":       BATCH_SIZE,
+        "best_epoch":       checkpoint["epoch"],
+        "training_time_s":  round(training_time_s, 1),
+        "final_train_acc":  round(final_train_acc, 4),
+        "best_val_acc":     round(best_val_acc, 4),
+        "history":          history,
+    }
 
-    print(f"Loaded checkpoint from epoch {checkpoint['epoch']}")
-    print(f"Val accuracy at that epoch: {checkpoint['val_accuracy']:.4f}")
-
-    window_preds, window_labels = predict_windows(
-        model=model,
-        dataset=test_data,
-        device=device,
-        batch_size=16,
-    )
-
-    show_results(
-        title="Final window-level evaluation on test set",
-        y_true=window_labels,
-        y_pred=window_preds,
-    )
-
-    file_preds, file_labels = majority_vote_by_file(
-        preds=window_preds,
-        labels=window_labels,
-        file_names=test_data.file_names,
-    )
-
-    show_results(
-        title="Final file-level majority-vote evaluation on test set",
-        y_true=file_labels,
-        y_pred=file_preds,
-    )
+    json_path = output_dir / f"results_intra_{MODEL_NAME}{RUN_SUFFIX}.json"
+    with open(json_path, "w") as f:
+        json.dump(results, f, indent=2)
+    print(f"\nResults saved to {json_path}")
 
 
 if __name__ == "__main__":

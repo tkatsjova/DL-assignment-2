@@ -1,4 +1,7 @@
+import json
 import random
+import time
+from collections import Counter
 from pathlib import Path
 
 import torch
@@ -7,112 +10,122 @@ import torch.optim as optim
 from tqdm import tqdm
 
 from src.data.config import ORIGINAL_SAMPLING_RATE, DOWNSAMPLE_FACTOR, WINDOW_SECONDS, OVERLAP
-from src.data.data_loading import list_h5_files
+from src.data.data_loading import ID_TO_LABEL, list_h5_files, extract_label_from_filename
 from src.data.dataset import MEGWindowDataset, create_dataloader
-from src.models.model import SimpleCNN1D, ResNet1D, CNNGRU
+from src.models.model import SimpleCNN1D, ResNet1D, CNNGRU, EEGNet, CNNLSTMAttention, MEGGraphNet
+from src.models.train import set_seed, stratified_split, check_accuracy
+
+N_TIMEPOINTS = int(WINDOW_SECONDS * ORIGINAL_SAMPLING_RATE / DOWNSAMPLE_FACTOR)
 
 
-MODEL_NAME = "cnn_gru"   # options: "simple_cnn", "resnet", "cnn_gru"
+MODEL_NAME = "cnn_gru"
+# options: "simple_cnn" | "resnet" | "cnn_gru" | "eegnet" | "cnn_lstm_attn" | "meg_graphnet"
+
+SEED        = 42
+N_EPOCHS    = 100
+BATCH_SIZE  = 16
+LR          = 1e-3
+CHUNK_SIZE  = 8    # files loaded into RAM at once — PDF recommendation
+ES_PATIENCE = 15
+LR_PATIENCE = 7
+
+# Auto-suffix encodes key hyperparameters so each experiment saves to its own file.
+RUN_SUFFIX = f"_lr{LR:.0e}_bs{BATCH_SIZE}"
 
 
-def get_model(name: str, device: torch.device) -> nn.Module:
-    if name == "simple_cnn":
-        return SimpleCNN1D(num_channels=248, num_classes=4).to(device)
-
-    if name == "resnet":
-        return ResNet1D(num_channels=248, num_classes=4).to(device)
-
-    if name == "cnn_gru":
-        return CNNGRU(num_channels=248, num_classes=4).to(device)
-
-    raise ValueError(f"Unknown model: {name}")
-
-
-def get_save_path(name: str, output_dir: Path) -> Path:
-    if name == "simple_cnn":
-        return output_dir / "best_cross_cnn1d.pt"
-
-    if name == "resnet":
-        return output_dir / "best_cross_resnet1d.pt"
-
-    if name == "cnn_gru":
-        return output_dir / "best_cross_cnngru.pt"
-
-    raise ValueError(f"Unknown model: {name}")
-
+# ---------------------------------------------------------------------------
+# Model registry
+# ---------------------------------------------------------------------------
 
 def get_device() -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def run_epoch(model, loader, loss_fn, optimizer, device):
+def get_model(name: str, device: torch.device) -> nn.Module:
+    models = {
+        "simple_cnn":    lambda: SimpleCNN1D(num_channels=248, num_classes=4),
+        "resnet":        lambda: ResNet1D(num_channels=248, num_classes=4),
+        "cnn_gru":       lambda: CNNGRU(num_channels=248, num_classes=4),
+        "eegnet":        lambda: EEGNet(n_channels=248, n_timepoints=N_TIMEPOINTS, n_classes=4),
+        "cnn_lstm_attn": lambda: CNNLSTMAttention(n_channels=248, n_classes=4),
+        "meg_graphnet":  lambda: MEGGraphNet(n_nodes=248, n_timepoints=N_TIMEPOINTS, n_classes=4),
+    }
+    if name not in models:
+        raise ValueError(f"Unknown model '{name}'. Options: {list(models)}")
+    return models[name]().to(device)
+
+
+def get_save_path(name: str, output_dir: Path) -> Path:
+    return output_dir / f"best_cross_{name}{RUN_SUFFIX}.pt"
+
+
+# ---------------------------------------------------------------------------
+# Chunk-based training epoch
+# Cross/train has 64 files — loading all at once requires ~14 GB RAM.
+# Instead we iterate over chunks of CHUNK_SIZE files, fitting the model on
+# each chunk before moving to the next. Weighted accumulation keeps the
+# epoch-level loss/acc accurate even when the last chunk is smaller.
+# ---------------------------------------------------------------------------
+
+def run_epoch_chunked(
+    model, train_files, loss_fn, optimizer, device, dataset_params
+) -> tuple[float, float]:
     model.train()
 
-    total_loss = 0
-    total_correct = 0
-    total_items = 0
+    random.shuffle(train_files)   # different order every epoch → regularisation
+    chunks = [
+        train_files[i:i + CHUNK_SIZE]
+        for i in range(0, len(train_files), CHUNK_SIZE)
+    ]
 
-    for x, y in tqdm(loader, desc="Training", leave=False):
-        x = x.to(device)
-        y = y.to(device)
+    epoch_loss = epoch_correct = epoch_total = 0
 
-        optimizer.zero_grad()
+    for chunk_idx, chunk_files in enumerate(chunks):
+        chunk_dataset = MEGWindowDataset(files=chunk_files, **dataset_params)
+        chunk_loader  = create_dataloader(chunk_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
-        logits = model(x)
-        loss = loss_fn(logits, y)
+        chunk_loss = chunk_correct = chunk_total = 0
 
-        loss.backward()
-        optimizer.step()
-
-        batch_size = x.size(0)
-        total_loss += loss.item() * batch_size
-        total_correct += (logits.argmax(dim=1) == y).sum().item()
-        total_items += batch_size
-
-    return total_loss / total_items, total_correct / total_items
-
-
-def check_accuracy(model, loader, loss_fn, device):
-    model.eval()
-
-    total_loss = 0
-    total_correct = 0
-    total_items = 0
-
-    with torch.no_grad():
-        for x, y in tqdm(loader, desc="Evaluating", leave=False):
-            x = x.to(device)
-            y = y.to(device)
-
+        for x, y in tqdm(chunk_loader, desc=f"  Chunk {chunk_idx+1}/{len(chunks)}", leave=False):
+            x, y = x.to(device), y.to(device)
+            optimizer.zero_grad()
             logits = model(x)
-            loss = loss_fn(logits, y)
+            loss   = loss_fn(logits, y)
+            loss.backward()
+            optimizer.step()
 
-            batch_size = x.size(0)
-            total_loss += loss.item() * batch_size
-            total_correct += (logits.argmax(dim=1) == y).sum().item()
-            total_items += batch_size
+            n = x.size(0)
+            chunk_loss    += loss.item() * n
+            chunk_correct += (logits.argmax(dim=1) == y).sum().item()
+            chunk_total   += n
 
-    return total_loss / total_items, total_correct / total_items
+        epoch_loss    += chunk_loss
+        epoch_correct += chunk_correct
+        epoch_total   += chunk_total
 
+    return epoch_loss / epoch_total, epoch_correct / epoch_total
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 def main():
+    set_seed(SEED)
+
     data_dir   = Path("Final Project data")
     output_dir = Path("outputs")
     output_dir.mkdir(exist_ok=True)
 
     train_folder = data_dir / "Cross" / "train"
 
-    test_folders = {
-        "test1": data_dir / "Cross" / "test1",
-        "test2": data_dir / "Cross" / "test2",
-        "test3": data_dir / "Cross" / "test3",
-    }
+    device    = get_device()
+    save_path = get_save_path(MODEL_NAME, output_dir)
 
-    device = get_device()
+    print(f"Device:  {device}")
+    print(f"Model:   {MODEL_NAME}")
+    print(f"Seed:    {SEED}")
 
-    # chunk_size=8 follows the PDF recommendation: load ~8 files at a time
-    # to avoid holding all 64 train files in RAM simultaneously (~14 GB)
-    chunk_size = 8
     dataset_params = dict(
         original_sampling_rate=ORIGINAL_SAMPLING_RATE,
         downsample_factor=DOWNSAMPLE_FACTOR,
@@ -120,134 +133,107 @@ def main():
         overlap=OVERLAP,
     )
 
-    print(f"Using device: {device}")
-    print(f"Training cross-subject model: {MODEL_NAME}")
+    # Stratified 80/20 split by class — each class equally represented in val.
+    # Cross/train has 2 subjects × 4 classes × ~8 files = 64 files total.
+    all_train_files          = list_h5_files(train_folder)
+    train_files, val_files   = stratified_split(all_train_files, val_ratio=0.2, seed=SEED)
 
-    # Split Cross/train files 80/20 into train and val by file —
-    # same reasoning as intra: windows from the same file are very
-    # similar, so we split by file to avoid leakage
-    all_train_files = list_h5_files(train_folder)
-    random.seed(42)
-    random.shuffle(all_train_files)  # shuffle before split so val isn't just the last chunk
-    split       = int(len(all_train_files) * 0.8)
-    train_files = all_train_files[:split]
-    val_files   = all_train_files[split:]
+    print(f"\nTrain files: {len(train_files)} | Val files: {len(val_files)}")
+    val_label_counts = Counter(extract_label_from_filename(f) for f in val_files)
+    print(f"Val class distribution: { {ID_TO_LABEL[k]: v for k, v in sorted(val_label_counts.items())} }")
+    print(f"Chunk size: {CHUNK_SIZE} files per chunk\n")
 
-    print(f"\nTotal train files: {len(train_files)} | Val files: {len(val_files)}")
-    print(f"Chunk size: {chunk_size} files per chunk")
-
-    # Val set loaded once in full — it's 20% of train so still manageable
+    # Val set loaded once — 20% of 64 files = ~13 files, manageable in RAM
     val_data   = MEGWindowDataset(files=val_files, **dataset_params)
-    val_loader = create_dataloader(val_data, batch_size=16, shuffle=False)
+    val_loader = create_dataloader(val_data, batch_size=BATCH_SIZE, shuffle=False)
 
-    # Test sets loaded once — touched only at the end
-    test_data = {
-        name: MEGWindowDataset(folder=folder, **dataset_params)
-        for name, folder in test_folders.items()
-    }
-    test_loaders = {
-        name: create_dataloader(data, batch_size=16, shuffle=False)
-        for name, data in test_data.items()
-    }
+    model   = get_model(MODEL_NAME, device)
+    loss_fn = nn.CrossEntropyLoss()
 
-    model     = get_model(MODEL_NAME, device)
-    loss_fn   = nn.CrossEntropyLoss()
-    optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
+    optimizer = optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-4)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="min", factor=0.5, patience=LR_PATIENCE,
+    )
 
-    n_epochs     = 40
-    best_val_acc = 0.0
-    save_path    = get_save_path(MODEL_NAME, output_dir)
+    best_val_acc  = 0.0
+    best_val_loss = float("inf")
+    es_counter    = 0
+    history       = []
 
-    print("\nStarting cross-subject training...")
+    print(f"Starting cross-subject training (max {N_EPOCHS} epochs, "
+          f"early stop patience={ES_PATIENCE})...\n")
 
-    for epoch in range(1, n_epochs + 1):
+    t_start = time.time()
 
-        # Shuffle train files every epoch so the model sees data
-        # in a different order — acts as regularisation and
-        # prevents overfitting to a fixed chunk ordering
-        random.shuffle(train_files)
-
-        epoch_loss    = 0.0
-        epoch_correct = 0
-        epoch_total   = 0
-
-        # Iterate over chunks — each chunk lives in RAM only while
-        # training on it, then Python's GC frees the memory
-        chunks = [
-            train_files[i:i + chunk_size]
-            for i in range(0, len(train_files), chunk_size)
-        ]
-
-        for chunk_idx, chunk_files in enumerate(chunks):
-            chunk_dataset = MEGWindowDataset(files=chunk_files, **dataset_params)
-            chunk_loader  = create_dataloader(chunk_dataset, batch_size=16, shuffle=True)
-
-            chunk_loss, chunk_acc = run_epoch(
-                model=model,
-                loader=chunk_loader,
-                loss_fn=loss_fn,
-                optimizer=optimizer,
-                device=device,
-            )
-
-            # Weighted accumulation — last chunk may be smaller than chunk_size
-            # so a simple average across chunks would be inaccurate
-            n = len(chunk_dataset)
-            epoch_loss    += chunk_loss * n
-            epoch_correct += chunk_acc * n
-            epoch_total   += n
-
-            print(
-                f"  Epoch {epoch:02d} | Chunk {chunk_idx + 1}/{len(chunks)} | "
-                f"loss: {chunk_loss:.4f} | acc: {chunk_acc:.4f}"
-            )
-
-        train_loss = epoch_loss / epoch_total
-        train_acc  = epoch_correct / epoch_total
-
-        # Evaluate on val set — used to select the best model
-        val_loss, val_acc = check_accuracy(
-            model=model, loader=val_loader, loss_fn=loss_fn, device=device,
+    for epoch in range(1, N_EPOCHS + 1):
+        train_loss, train_acc = run_epoch_chunked(
+            model, train_files, loss_fn, optimizer, device, dataset_params
         )
+        val_loss, val_acc = check_accuracy(model, val_loader, loss_fn, device)
 
+        current_lr = optimizer.param_groups[0]["lr"]
         print(
-            f"Epoch {epoch:02d}/{n_epochs} | "
-            f"Train loss: {train_loss:.4f} | Train acc: {train_acc:.4f} | "
-            f"Val loss: {val_loss:.4f} | Val acc: {val_acc:.4f}"
+            f"Epoch {epoch:03d}/{N_EPOCHS} | "
+            f"Train loss: {train_loss:.4f}  acc: {train_acc:.4f} | "
+            f"Val loss: {val_loss:.4f}  acc: {val_acc:.4f} | "
+            f"LR: {current_lr:.2e}"
         )
+
+        history.append(dict(
+            epoch=epoch,
+            train_loss=train_loss, train_acc=train_acc,
+            val_loss=val_loss,     val_acc=val_acc,
+        ))
+
+        scheduler.step(val_loss)
 
         if val_acc > best_val_acc:
-            best_val_acc = val_acc
-
+            best_val_acc  = val_acc
+            best_val_loss = val_loss
+            es_counter    = 0
             torch.save(
                 {
                     "model_state_dict": model.state_dict(),
-                    "val_accuracy": best_val_acc,
-                    "epoch": epoch,
-                    "model_name": MODEL_NAME,
+                    "val_accuracy":     best_val_acc,
+                    "val_loss":         best_val_loss,
+                    "epoch":            epoch,
+                    "model_name":       MODEL_NAME,
+                    "history":          history,
                 },
                 save_path,
             )
+            print(f"  → Saved best model (val acc: {best_val_acc:.4f})")
+        else:
+            es_counter += 1
+            if es_counter >= ES_PATIENCE:
+                print(f"\nEarly stopping: val_acc hasn't improved for {ES_PATIENCE} epochs.")
+                break
 
-            print(f"Saved new best model (val acc: {best_val_acc:.4f}) to: {save_path}")
+    training_time_s = time.time() - t_start
+    final_train_acc = history[-1]["train_acc"] if history else 0.0
 
-    print("\nCross-subject training complete.")
-    print(f"Best val accuracy: {best_val_acc:.4f}")
+    print(f"\nTraining finished in {training_time_s:.1f}s. Best val accuracy: {best_val_acc:.4f}")
 
-    # Load best checkpoint and evaluate on all three unseen test subjects
-    print("\nLoading best checkpoint for final evaluation on test subjects...")
-    checkpoint = torch.load(save_path, map_location=device)
-    model = get_model(MODEL_NAME, device)
-    model.load_state_dict(checkpoint["model_state_dict"])
-    print(f"Loaded checkpoint from epoch {checkpoint['epoch']}")
-    print(f"Val accuracy at that epoch: {checkpoint['val_accuracy']:.4f}")
+    checkpoint = torch.load(save_path, map_location=device, weights_only=False)
+    n_params = sum(p.numel() for p in model.parameters())
 
-    print("\nFinal test results:")
-    for test_name, test_loader in test_loaders.items():
-        _, test_acc = check_accuracy(
-            model=model, loader=test_loader, loss_fn=loss_fn, device=device,
-        )
-        print(f"  {test_name}: acc={test_acc:.4f}")
+    results = {
+        "model_name":       MODEL_NAME,
+        "n_params":         n_params,
+        "seed":             SEED,
+        "lr":               LR,
+        "batch_size":       BATCH_SIZE,
+        "best_epoch":       checkpoint["epoch"],
+        "training_time_s":  round(training_time_s, 1),
+        "final_train_acc":  round(final_train_acc, 4),
+        "best_val_acc":     round(best_val_acc, 4),
+        "history":          history,
+    }
+
+    json_path = output_dir / f"results_cross_{MODEL_NAME}{RUN_SUFFIX}.json"
+    with open(json_path, "w") as f:
+        json.dump(results, f, indent=2)
+    print(f"Results saved to {json_path}")
 
 
 if __name__ == "__main__":
