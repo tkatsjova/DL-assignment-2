@@ -1,10 +1,14 @@
 """
-Entry point for data preparation and exploratory analysis.
+Entry points for the MEG classification project.
 
-Run this first to verify the dataset is accessible and generate EDA plots:
+EDA only:
     python main.py
+
+Training (intra + cross) followed by plots:
+    python main.py --train
 """
 
+import argparse
 from pathlib import Path
 
 from src.data.data_loading import inspect_folder
@@ -15,8 +19,7 @@ from src.data.eda import (
     plot_value_distribution,
 )
 
-DATA_DIR   = Path("Final Project data")
-OUTPUT_DIR = Path("outputs") / "eda"
+DATA_DIR = Path("Final Project data")
 
 
 def main() -> None:
@@ -61,5 +64,34 @@ def main() -> None:
     print(f"\nDone. Plots saved to: {OUTPUT_DIR}/")
 
 
+def train_and_plot() -> None:
+    import src.models.train as intra
+    import src.models.train_cross as cross
+    import src.models.plot_results as plots
+
+    print("=" * 60)
+    print("Step 1/3 — Intra-subject training")
+    print("=" * 60)
+    intra.main()
+
+    print("\n" + "=" * 60)
+    print("Step 2/3 — Cross-subject training")
+    print("=" * 60)
+    cross.main()
+
+    print("\n" + "=" * 60)
+    print("Step 3/3 — Generating plots")
+    print("=" * 60)
+    plots.main()
+
+
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--train", action="store_true",
+                        help="Run intra + cross training, then generate plots")
+    args = parser.parse_args()
+
+    if args.train:
+        train_and_plot()
+    else:
+        main()

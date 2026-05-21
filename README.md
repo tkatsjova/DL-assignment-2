@@ -41,7 +41,7 @@ Useful resources:
 
 MEG (Magnetoencephalography) data — brain magnetic field recordings via 248 scalp sensors.  
 Each file: `248 sensors × 35624 time steps` (~17.5 s at 2034 Hz), stored as `.h5`.  
-Download the dataset and place it under `data/` (excluded from git).
+Download the dataset and place it under `Final Project data/` (excluded from git).
 
 ---
 
@@ -68,10 +68,10 @@ Below is the recommended order of work across the team. Steps 1–2 must be done
 
 ### Step 2 — Preprocessing & DataLoader (Person 1)
 - Apply **Z-score normalisation** per sensor per file (time-wise, not global)
-- **Downsample** from 2034 Hz to ~200–500 Hz (e.g. keep every 4th sample) to reduce compute
-- **Window** each recording into fixed-length segments (e.g. 256 samples, 50% overlap) to get more training examples
+- **Downsample** from 2034 Hz → 508 Hz using anti-aliased decimation (`scipy.signal.decimate`, factor=4)
+- **Window** each recording into 2-second segments (~1017 samples, 50% overlap) to get more training examples
 - Build a `torch.utils.data.Dataset` that returns `(segment, label)` pairs
-- For Cross data (64 train files) load in chunks of ~8 files per iteration to avoid OOM
+- For Cross data (64 train files) load in chunks of 8 files per iteration to avoid OOM
 
 ### Step 3 — Model architecture (Person 2)
 - Start with a **1D CNN** baseline: temporal convolutions over the 248-channel input
@@ -110,12 +110,22 @@ Below is the recommended order of work across the team. Steps 1–2 must be done
 ## Setup
 
 ```bash
-pip install h5py torch numpy scikit-learn matplotlib
+pip install h5py torch numpy scikit-learn matplotlib scipy tqdm
 ```
 
-Run the full pipeline:
+Exploratory data analysis:
 ```bash
 python main.py
+```
+
+Training (intra + cross) followed by plots:
+```bash
+python main.py --train
+```
+
+Plots only (from previously saved results):
+```bash
+python -m src.models.plot_results
 ```
 
 ---

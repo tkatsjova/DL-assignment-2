@@ -1,6 +1,8 @@
 import numpy as np
 from scipy.signal import decimate
 
+from src.data.config import ORIGINAL_SAMPLING_RATE, DOWNSAMPLE_FACTOR, WINDOW_SECONDS, OVERLAP
+
 
 def zscore_per_sensor(x: np.ndarray, eps: float = 1e-15) -> np.ndarray:
     mean = x.mean(axis=1, keepdims=True)
@@ -44,10 +46,10 @@ def create_windows(
 def preprocess_recording(
     x: np.ndarray,
     label: int,
-    original_sampling_rate: int = 2034,
-    downsample_factor: int = 4,
-    window_seconds: float = 2.0,
-    overlap: float = 0.5,
+    original_sampling_rate: int = ORIGINAL_SAMPLING_RATE,
+    downsample_factor: int = DOWNSAMPLE_FACTOR,
+    window_seconds: float = WINDOW_SECONDS,
+    overlap: float = OVERLAP,
 ) -> tuple[np.ndarray, np.ndarray]:
 
     x = zscore_per_sensor(x)

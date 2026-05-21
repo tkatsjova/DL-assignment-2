@@ -5,6 +5,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
+from src.data.config import ORIGINAL_SAMPLING_RATE, DOWNSAMPLE_FACTOR, WINDOW_SECONDS, OVERLAP
 from src.data.data_loading import (
     load_folder_metadata,
     load_h5_file,
@@ -18,10 +19,10 @@ from src.data.preprocessing import preprocess_recording
 class MEGWindowDataset(Dataset):
     def __init__(
         self,
-        original_sampling_rate: int = 2034,
-        downsample_factor: int = 4,
-        window_seconds: float = 2.0,
-        overlap: float = 0.5,
+        original_sampling_rate: int = ORIGINAL_SAMPLING_RATE,
+        downsample_factor: int = DOWNSAMPLE_FACTOR,
+        window_seconds: float = WINDOW_SECONDS,
+        overlap: float = OVERLAP,
         folder: Path | None = None,
         files: list[Path] | None = None,
         max_files: int | None = None,
@@ -30,15 +31,15 @@ class MEGWindowDataset(Dataset):
         # or an explicit list of files (e.g. a chunk for cross-subject training).
         # This lets the same class handle both scenarios without duplicating code.
         if files is not None:
-            metadata = [
-                {
-                    "file_path": f,
-                    "label": extract_label_from_filename(f),
-                    "label_name": ID_TO_LABEL[extract_label_from_filename(f)],
+            metadata = []
+            for f in files:
+                label = extract_label_from_filename(f)
+                metadata.append({
+                    "file_path":  f,
+                    "label":      label,
+                    "label_name": ID_TO_LABEL[label],
                     "subject_id": extract_subject_id_from_filename(f),
-                }
-                for f in files
-            ]
+                })
         elif folder is not None:
             metadata = load_folder_metadata(folder)
         else:
