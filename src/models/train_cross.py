@@ -38,7 +38,11 @@ RUN_SUFFIX = f"_lr{LR:.0e}_bs{BATCH_SIZE}"
 # ---------------------------------------------------------------------------
 
 def get_device() -> torch.device:
-    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
 
 
 def get_model(name: str, device: torch.device) -> nn.Module:
