@@ -1,97 +1,125 @@
 """
-Entry points for the MEG classification project.
+Main entry point for the MEG classification project.
 
-EDA only:
+EDA only (default):
     python main.py
 
-Training (intra + cross) followed by plots:
+Train all models — intra only:
+    python main.py --train --intra
+
+Train all models — cross only:
+    python main.py --train --cross
+
+Train all models — intra + cross:
     python main.py --train
 """
 
 import argparse
+import importlib
 from pathlib import Path
 
-from src.data.data_loading import inspect_folder
-from src.data.eda import (
-    plot_raw_vs_normalised,
-    plot_class_balance,
-    plot_signal_per_class,
-    plot_value_distribution,
-)
+DATA_DIR   = Path("Final Project data")
+OUTPUT_DIR = Path("outputs/eda")
 
-DATA_DIR = Path("Final Project data")
+MODELS = [
+    "simple_cnn",
+    "resnet",
+    "cnn_gru",
+    "eegnet",
+    "cnn_lstm_attn",
+    "meg_graphnet",
+]
 
 
-def main() -> None:
-    intra_train  = DATA_DIR / "Intra" / "train"
-    intra_test   = DATA_DIR / "Intra" / "test"
-    cross_train  = DATA_DIR / "Cross" / "train"
-    cross_test1  = DATA_DIR / "Cross" / "test1"
-    cross_test2  = DATA_DIR / "Cross" / "test2"
-    cross_test3  = DATA_DIR / "Cross" / "test3"
+# ---------------------------------------------------------------------------
+# EDA
+# ---------------------------------------------------------------------------
 
-    # ── 1. Dataset inspection ──────────────────────────────────────────────────
+def run_eda() -> None:
+    from src.data.data_loading import inspect_folder
+    from src.data.eda import (
+        plot_raw_vs_normalised,
+        plot_class_balance,
+        plot_signal_per_class,
+        plot_value_distribution,
+    )
+
+    intra_train = DATA_DIR / "Intra"  / "train"
+    intra_test  = DATA_DIR / "Intra"  / "test"
+    cross_train = DATA_DIR / "Cross"  / "train"
+    cross_test1 = DATA_DIR / "Cross"  / "test1"
+    cross_test2 = DATA_DIR / "Cross"  / "test2"
+    cross_test3 = DATA_DIR / "Cross"  / "test3"
+
     print("=== Dataset Inspection ===")
-    inspect_folder(intra_train)
-    inspect_folder(intra_test)
-    inspect_folder(cross_train)
-    inspect_folder(cross_test1)
-    inspect_folder(cross_test2)
-    inspect_folder(cross_test3)
+    for folder in (intra_train, intra_test, cross_train, cross_test1, cross_test2, cross_test3):
+        inspect_folder(folder)
 
-    # ── 2. EDA plots ───────────────────────────────────────────────────────────
     print("\n=== Generating EDA Plots ===\n")
-
-    print("Plot 1: Raw vs Normalised signal...")
     plot_raw_vs_normalised(intra_train)
-
-    print("Plot 2: Class balance...")
     plot_class_balance({
-        "Intra/train":  intra_train,
-        "Intra/test":   intra_test,
-        "Cross/train":  cross_train,
-        "Cross/test1":  cross_test1,
-        "Cross/test2":  cross_test2,
-        "Cross/test3":  cross_test3,
+        "Intra/train": intra_train,
+        "Intra/test":  intra_test,
+        "Cross/train": cross_train,
+        "Cross/test1": cross_test1,
+        "Cross/test2": cross_test2,
+        "Cross/test3": cross_test3,
     })
-
-    print("Plot 3: Signal per class...")
     plot_signal_per_class(intra_train)
-
-    print("Plot 4: Value distribution...")
     plot_value_distribution(intra_train)
+    print(f"\nDone. Plots saved to {OUTPUT_DIR}/")
 
-    print(f"\nDone. Plots saved to: {OUTPUT_DIR}/")
+
+# ---------------------------------------------------------------------------
+# Training
+# ---------------------------------------------------------------------------
+
+def _run_module(module_path: str, model_name: str) -> None:
+    mod = importlib.import_module(module_path)
+    original = mod.MODEL_NAME
+    mod.MODEL_NAME = model_name
+    try:
+        print(f"\n{'=' * 70}")
+        print(f"  {module_path.split('.')[-1]}  |  model: {model_name}")
+        print(f"{'=' * 70}\n")
+        mod.main()
+    finally:
+        mod.MODEL_NAME = original
 
 
-def train_and_plot() -> None:
-    import src.models.train as intra
-    import src.models.train_cross as cross
-    import src.models.plot_results as plots
+def run_training(intra: bool, cross: bool) -> None:
+    for model in MODELS:
+        if intra:
+            _run_module("src.models.train", model)
+        if cross:
+            _run_module("src.models.train_cross", model)
 
-    print("=" * 60)
-    print("Step 1/3 — Intra-subject training")
-    print("=" * 60)
-    intra.main()
-
-    print("\n" + "=" * 60)
-    print("Step 2/3 — Cross-subject training")
-    print("=" * 60)
-    cross.main()
-
-    print("\n" + "=" * 60)
-    print("Step 3/3 — Generating plots")
-    print("=" * 60)
+    print(f"\n{'=' * 70}")
+    print("All models done. Generating training plots...")
+    print(f"{'=' * 70}\n")
+    import src.evaluate.train_plots as plots
     plots.main()
 
 
-if __name__ == "__main__":
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--train", action="store_true",
-                        help="Run intra + cross training, then generate plots")
+    parser.add_argument("--train", action="store_true", help="Train all models")
+    parser.add_argument("--intra", action="store_true", help="Intra-subject only (requires --train)")
+    parser.add_argument("--cross", action="store_true", help="Cross-subject only (requires --train)")
     args = parser.parse_args()
 
     if args.train:
-        train_and_plot()
+        # If neither flag given, run both
+        do_intra = args.intra or (not args.intra and not args.cross)
+        do_cross = args.cross or (not args.intra and not args.cross)
+        run_training(intra=do_intra, cross=do_cross)
     else:
-        main()
+        run_eda()
+
+
+if __name__ == "__main__":
+    main()
