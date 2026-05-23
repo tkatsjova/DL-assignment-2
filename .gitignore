@@ -16,3 +16,6 @@ venv/
 # vscode/system
 .vscode/
 .DS_Store
+
+.idea/
+notes.md
