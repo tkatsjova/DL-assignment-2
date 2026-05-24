@@ -4,7 +4,7 @@ Evaluate saved checkpoints on held-out test sets and generate report figures.
 Intra-subject:
     python evaluate.py
 
-Cross-subject (run after python run_all_models.py --cross):
+Cross-subject (run after python main.py --train --cross):
     python evaluate.py --cross
 
 Both:
