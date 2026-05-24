@@ -308,7 +308,7 @@ class CNNGRUAttention(nn.Module):
         # Temporal CNN
         # Two Conv1d layers slide a small window (~14 ms at 508 Hz) along the
         # time axis to detect local bursts and oscillatory patterns.
-        # MaxPool1d(4) compresses 1017 → 254 time steps so the LSTM receives
+        # MaxPool1d(4) compresses 1017 → 254 time steps so the GRU receives
         # a shorter but information-dense sequence.
         # ------------------------------------------------------------------
         self.temporal_cnn = nn.Sequential(
