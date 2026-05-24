@@ -14,13 +14,13 @@ from tqdm import tqdm
 from src.data.config import ORIGINAL_SAMPLING_RATE, DOWNSAMPLE_FACTOR, WINDOW_SECONDS, OVERLAP
 from src.data.data_loading import ID_TO_LABEL, list_h5_files, extract_label_from_filename
 from src.data.dataset import MEGWindowDataset, create_dataloader
-from src.models.model import SimpleCNN1D, ResNet1D, CNNGRU, EEGNet, CNNLSTMAttention, MEGGraphNet
+from src.models.model import SimpleCNN1D, ResNet1D, CNNGRU, EEGNet, CNNGRUAttention, MEGGraphNet
 
 N_TIMEPOINTS = int(WINDOW_SECONDS * ORIGINAL_SAMPLING_RATE / DOWNSAMPLE_FACTOR)
 
 
 MODEL_NAME = "cnn_gru"
-# options: "simple_cnn" | "resnet" | "cnn_gru" | "eegnet" | "cnn_lstm_attn" | "meg_graphnet"
+# options: "simple_cnn" | "resnet" | "cnn_gru" | "eegnet" | "cnn_gru_attn" | "meg_graphnet"
 
 SEED       = 42
 N_EPOCHS   = 100   # early stopping decides the actual stopping point
@@ -90,7 +90,7 @@ def get_model(name: str, device: torch.device) -> nn.Module:
         "resnet":        lambda: ResNet1D(num_channels=248, num_classes=4),
         "cnn_gru":       lambda: CNNGRU(num_channels=248, num_classes=4),
         "eegnet":        lambda: EEGNet(n_channels=248, n_timepoints=N_TIMEPOINTS, n_classes=4),
-        "cnn_lstm_attn": lambda: CNNLSTMAttention(n_channels=248, n_classes=4),
+        "cnn_gru_attn":  lambda: CNNGRUAttention(n_channels=248, n_classes=4),
         "meg_graphnet":  lambda: MEGGraphNet(n_nodes=248, n_timepoints=N_TIMEPOINTS, n_classes=4),
     }
     if name not in models:
