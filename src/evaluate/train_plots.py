@@ -214,10 +214,129 @@ def plot_overfit_gap(intra: dict, cross: dict) -> None:
     ax.set_xticklabels(labels, rotation=15, ha="right")
     ax.set_ylabel("Accuracy")
     ax.set_ylim(0, 1.05)
-    ax.set_title("(d) Train acc vs val acc gap (proxy for overfitting — test gap added after evaluation)")
+    ax.set_title("(d) Train acc vs val acc gap (proxy for overfitting; see true_train_test_gap for test)")
     ax.legend(fontsize=8, ncol=2)
     plt.tight_layout()
     out = PLOT_DIR / "overfit_gap.png"
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    print(f"  saved {out}")
+
+
+# ── (d) true train → val → test gap ───────────────────────────────────────────
+
+def plot_true_train_test_gap(
+    intra_train: dict,
+    cross_train: dict,
+    output_dir: Path | None = None,
+) -> None:
+    """(d) True train → val → test accuracy gap.
+
+    Combines training-phase JSONs (final_train_acc, best_val_acc) with
+    evaluation-phase JSONs (window-level test accuracy from eval_intra.json /
+    eval_cross.json).  Silently skips if no eval JSON is found yet.
+    """
+    output_dir = output_dir or OUTPUT_DIR
+    eval_intra_path = output_dir / "eval_intra.json"
+    eval_cross_path = output_dir / "eval_cross.json"
+
+    eval_intra: dict = {}
+    eval_cross: dict = {}
+    if eval_intra_path.exists():
+        with open(eval_intra_path) as f:
+            eval_intra = json.load(f)
+    if eval_cross_path.exists():
+        with open(eval_cross_path) as f:
+            eval_cross = json.load(f)
+
+    if not eval_intra and not eval_cross:
+        print("[skip] plot_true_train_test_gap — no eval JSON files found yet")
+        return
+
+    # For each scenario keep only the run with the highest best_val_acc per model
+    def best_run_by_model(results: dict) -> dict[str, dict]:
+        best: dict[str, dict] = {}
+        for d in results.values():
+            name = d.get("model_name", "")
+            if name and (name not in best or d["best_val_acc"] > best[name]["best_val_acc"]):
+                best[name] = d
+        return best
+
+    intra_best = best_run_by_model(intra_train)
+    cross_best = best_run_by_model(cross_train)
+
+    all_models = sorted(
+        set(intra_best) | set(cross_best) | set(eval_intra) | set(eval_cross)
+    )
+    if not all_models:
+        return
+
+    x     = np.arange(len(all_models))
+    w     = 0.13
+    names = [MODEL_LABELS.get(m, m) for m in all_models]
+
+    # Prefer eval-mode train accuracy (no dropout) over training-phase final_train_acc
+    def _train_acc(eval_d: dict, train_d: dict) -> float | None:
+        v = eval_d.get("train_eval_accuracy")
+        if v is None:
+            v = train_d.get("final_train_acc")
+        return v
+
+    intra_tr   = [_train_acc(eval_intra.get(m, {}), intra_best.get(m, {})) for m in all_models]
+    intra_val  = [intra_best.get(m, {}).get("best_val_acc")                 for m in all_models]
+    intra_test = [eval_intra.get(m, {}).get("window_level", {}).get("accuracy") for m in all_models]
+
+    cross_tr  = [_train_acc(eval_cross.get(m, {}), cross_best.get(m, {})) for m in all_models]
+    cross_val = [cross_best.get(m, {}).get("best_val_acc")                 for m in all_models]
+
+    # Use precomputed avg if available, otherwise compute from test_sets
+    cross_test = []
+    for m in all_models:
+        r   = eval_cross.get(m, {})
+        avg = r.get("avg_test_window_accuracy")
+        if avg is None:
+            accs = [s.get("accuracy", 0.0) for s in r.get("test_sets", {}).values()]
+            avg  = float(np.mean(accs)) if accs else None
+        cross_test.append(avg)
+
+    palette = [
+        "#2166ac",  # intra train  — dark blue
+        "#6baed6",  # intra val    — light blue
+        "#084594",  # intra test   — navy
+        "#d94801",  # cross train  — dark orange
+        "#fd8d3c",  # cross val    — light orange
+        "#7f2704",  # cross test   — maroon
+    ]
+
+    fig, ax = plt.subplots(figsize=(12, 5))
+
+    def _bar(offset, values, color, label):
+        vals  = [v if v is not None else 0.0 for v in values]
+        valid = [v is not None for v in values]
+        bars = ax.bar(x + offset * w, vals, w * 0.92,
+                      color=color, label=label, alpha=0.88, edgecolor="white")
+        for bar, ok in zip(bars, valid):
+            if not ok:
+                bar.set_visible(False)
+        return bars
+
+    _bar(-2.5, intra_tr,   palette[0], "Intra — train")
+    _bar(-1.5, intra_val,  palette[1], "Intra — val")
+    _bar(-0.5, intra_test, palette[2], "Intra — test")
+    _bar( 0.5, cross_tr,   palette[3], "Cross — train")
+    _bar( 1.5, cross_val,  palette[4], "Cross — val")
+    _bar( 2.5, cross_test, palette[5], "Cross — test (avg)")
+
+    ax.axhline(0.25, color="grey", linestyle="--", linewidth=0.8, label="Chance (25%)")
+    ax.set_xticks(x)
+    ax.set_xticklabels(names, rotation=15, ha="right")
+    ax.set_ylabel("Accuracy")
+    ax.set_ylim(0, 1.1)
+    ax.set_title("(d) True train → val → test accuracy gap  (train = eval mode, no dropout)")
+    ax.legend(fontsize=7, ncol=4, loc="upper right")
+    plt.tight_layout()
+
+    out = PLOT_DIR / "true_train_test_gap.png"
     fig.savefig(out, dpi=150)
     plt.close(fig)
     print(f"  saved {out}")
@@ -239,6 +358,7 @@ def main() -> None:
     plot_learning_curves(intra, scenario="intra")
     plot_learning_curves(cross, scenario="cross")
     plot_overfit_gap(intra, cross)
+    plot_true_train_test_gap(intra, cross)   # no-op until eval JSONs exist
 
     print("\nDone.")
 
