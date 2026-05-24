@@ -268,7 +268,7 @@ class CNNGRU(nn.Module):
 
 
 # =============================================================================
-# CNN + LSTM + Attention
+# CNN + GRU + Attention
 #
 # Hybrid architecture for multivariate time-series classification.
 # General pattern used across EEG: https://arxiv.org/abs/2007.00897
@@ -276,17 +276,17 @@ class CNNGRU(nn.Module):
 # Three stages that mirror how neuroscientists think about MEG data:
 #   Stage 1 — Spatial projection:  which sensors carry useful information?
 #   Stage 2 — Temporal CNN:        what local patterns appear in the signal?
-#   Stage 3 — LSTM + Attention:    how do those patterns unfold over 2 seconds,
+#   Stage 3 — GRU + Attention:     how do those patterns unfold over 2 seconds,
 #                                   and at which moment is the brain state clearest?
 # =============================================================================
-class CNNLSTMAttention(nn.Module):
+class CNNGRUAttention(nn.Module):
     def __init__(
         self,
         n_channels: int = 248,       # MEG sensors
         n_classes: int = 4,          # rest / math / memory / motor
         spatial_hidden: int = 64,    # sensors projected to this many features
         cnn_channels: int = 64,      # CNN feature maps
-        lstm_hidden: int = 64,       # LSTM hidden size (per direction)
+        gru_hidden: int = 64,        # GRU hidden size (per direction)
         dropout_rate: float = 0.4,
     ):
         super().__init__()
@@ -324,20 +324,22 @@ class CNNLSTMAttention(nn.Module):
         )
 
         # ------------------------------------------------------------------
-        # Bidirectional LSTM
+        # Bidirectional GRU
         # Reads the 254-step sequence in both directions so every time step
         # has context from its past AND its future within the 2-second window.
-        # Output at each step: lstm_hidden * 2 (forward + backward concat).
+        # Output at each step: gru_hidden * 2 (forward + backward concat).
+        # GRU is used instead of LSTM for consistency with CNNGRU and to keep
+        # the recurrent unit identical across the model progression.
         # ------------------------------------------------------------------
-        self.lstm = nn.LSTM(
+        self.gru = nn.GRU(
             input_size=cnn_channels,
-            hidden_size=lstm_hidden,
+            hidden_size=gru_hidden,
             num_layers=1,
             batch_first=True,        # expects (batch, seq, features)
             bidirectional=True,
         )
 
-        lstm_out_size = lstm_hidden * 2  # bidirectional doubles the output dim
+        gru_out_size = gru_hidden * 2  # bidirectional doubles the output dim
 
         # ------------------------------------------------------------------
         # Additive Attention
@@ -346,7 +348,7 @@ class CNNLSTMAttention(nn.Module):
         # The weighted sum collapses the sequence into one fixed-size vector.
         # This is strictly more expressive than mean pooling used in CNNGRU.
         # ------------------------------------------------------------------
-        self.attention = nn.Linear(lstm_out_size, 1)
+        self.attention = nn.Linear(gru_out_size, 1)
 
         # ------------------------------------------------------------------
         # Classifier
@@ -354,7 +356,7 @@ class CNNLSTMAttention(nn.Module):
         # ------------------------------------------------------------------
         self.classifier = nn.Sequential(
             nn.Dropout(dropout_rate),
-            nn.Linear(lstm_out_size, n_classes),
+            nn.Linear(gru_out_size, n_classes),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -363,16 +365,16 @@ class CNNLSTMAttention(nn.Module):
         x = self.spatial_proj(x)    # → (batch, spatial_hidden, 1017)
         x = self.temporal_cnn(x)    # → (batch, cnn_channels,   254)
 
-        # LSTM expects (batch, seq_len, features)
-        x = x.transpose(1, 2)       # → (batch, 254, cnn_channels)
-        lstm_out, _ = self.lstm(x)  # → (batch, 254, lstm_hidden*2)
+        # GRU expects (batch, seq_len, features)
+        x = x.transpose(1, 2)      # → (batch, 254, cnn_channels)
+        gru_out, _ = self.gru(x)   # → (batch, 254, gru_hidden*2)
 
         # Attention: score each time step, then softmax → weights
-        scores = self.attention(lstm_out)          # → (batch, 254, 1)
-        weights = torch.softmax(scores, dim=1)     # → (batch, 254, 1)  (sum to 1 over time)
-        context = (weights * lstm_out).sum(dim=1)  # → (batch, lstm_hidden*2)
+        scores = self.attention(gru_out)          # → (batch, 254, 1)
+        weights = torch.softmax(scores, dim=1)    # → (batch, 254, 1)  (sum to 1 over time)
+        context = (weights * gru_out).sum(dim=1)  # → (batch, gru_hidden*2)
 
-        return self.classifier(context)            # → (batch, n_classes)
+        return self.classifier(context)           # → (batch, n_classes)
 
 
 # =============================================================================
