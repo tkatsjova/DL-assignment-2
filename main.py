@@ -26,7 +26,7 @@ MODELS = [
     "resnet",
     "cnn_gru",
     "eegnet",
-    "cnn_lstm_attn",
+    "cnn_gru_attn",
     "meg_graphnet",
 ]
 

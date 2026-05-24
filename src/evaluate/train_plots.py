@@ -27,7 +27,7 @@ MODEL_LABELS = {
     "resnet":        "ResNet1D",
     "cnn_gru":       "CNN-GRU",
     "eegnet":        "EEGNet",
-    "cnn_lstm_attn": "CNN-LSTM-Attn",
+    "cnn_gru_attn":  "CNN-GRU-Attn",
     "meg_graphnet":  "MEGGraphNet",
 }
 
