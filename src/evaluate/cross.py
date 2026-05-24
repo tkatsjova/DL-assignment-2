@@ -1,4 +1,4 @@
-"""Evaluate all cross-subject checkpoints on Cross/test1, test2, test3."""
+"""Evaluate all cross-subject checkpoints on Cross/test1, test2, test3 and Cross/train (gap)."""
 
 import json
 from pathlib import Path
@@ -7,6 +7,7 @@ import numpy as np
 from sklearn.metrics import accuracy_score
 
 from src.data.config import ORIGINAL_SAMPLING_RATE, DOWNSAMPLE_FACTOR, WINDOW_SECONDS, OVERLAP
+from src.data.data_loading import list_h5_files
 from src.data.dataset import MEGWindowDataset
 from src.evaluate.core import (
     find_checkpoint, load_model, predict, majority_vote, compute_metrics, get_device,
@@ -17,6 +18,9 @@ MODELS = ["simple_cnn", "resnet", "cnn_gru", "eegnet", "cnn_lstm_attn", "meg_gra
 
 TEST_SPLITS = ["test1", "test2", "test3"]
 
+# Cross/train has ~64 files; evaluate in chunks to avoid loading all into RAM at once
+TRAIN_EVAL_CHUNK = 8
+
 DATASET_PARAMS = dict(
     original_sampling_rate=ORIGINAL_SAMPLING_RATE,
     downsample_factor=DOWNSAMPLE_FACTOR,
@@ -25,9 +29,23 @@ DATASET_PARAMS = dict(
 )
 
 
+def _eval_acc_chunked(model, files: list, device, chunk_size: int = TRAIN_EVAL_CHUNK) -> float:
+    """Run the model in eval mode over a large file list in chunks; returns window accuracy."""
+    all_preds, all_labels = [], []
+    for i in range(0, len(files), chunk_size):
+        chunk_ds = MEGWindowDataset(files=files[i:i + chunk_size], **DATASET_PARAMS)
+        preds, labels = predict(model, chunk_ds, device)
+        all_preds.extend(preds)
+        all_labels.extend(labels)
+    return round(float(accuracy_score(all_labels, all_preds)), 4)
+
+
 def run(data_dir: Path, output_dir: Path) -> dict:
-    device = get_device()
+    device      = get_device()
+    train_files = list_h5_files(data_dir / "Cross" / "train")
+
     print(f"Device: {device}")
+    print(f"Cross/train: {len(train_files)} files (will be evaluated in chunks for gap analysis)")
 
     all_results = {}
 
@@ -42,10 +60,16 @@ def run(data_dir: Path, output_dir: Path) -> dict:
         print(f"  {name}  (cross val_acc={val_acc:.4f}, best_epoch={best_epoch})")
         print(f"{'#'*60}")
 
+        # Train evaluation in eval mode — for true overfitting gap
+        print(f"\nEvaluating on Cross/train in eval mode (gap analysis) ...")
+        train_eval_acc = _eval_acc_chunked(model, train_files, device)
+        print(f"  Train eval accuracy (eval mode, for gap): {train_eval_acc:.4f}")
+
         model_results = {
-            "val_accuracy": val_acc,
-            "best_epoch":   best_epoch,
-            "test_sets":    {},
+            "val_accuracy":        val_acc,
+            "best_epoch":          best_epoch,
+            "train_eval_accuracy": train_eval_acc,
+            "test_sets":           {},
         }
 
         for split in TEST_SPLITS:
@@ -64,7 +88,7 @@ def run(data_dir: Path, output_dir: Path) -> dict:
             model_results["test_sets"][split] = split_metrics
 
         # Summary across test sets
-        accs  = [model_results["test_sets"][s]["accuracy"]                    for s in TEST_SPLITS if s in model_results["test_sets"]]
+        accs    = [model_results["test_sets"][s]["accuracy"]                    for s in TEST_SPLITS if s in model_results["test_sets"]]
         mv_accs = [model_results["test_sets"][s]["file_majority_vote_accuracy"] for s in TEST_SPLITS if s in model_results["test_sets"]]
         if accs:
             model_results["avg_test_window_accuracy"]    = round(float(np.mean(accs)),    4)

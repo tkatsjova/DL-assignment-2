@@ -36,6 +36,12 @@ def main() -> None:
         from src.evaluate.cross import run as run_cross_eval
         run_cross_eval(DATA_DIR, OUTPUT_DIR)
 
+    # Regenerate training plots now that eval JSONs are available;
+    # this produces true_train_test_gap.png combining train acc with test acc.
+    from src.evaluate.train_plots import main as update_train_plots
+    print("\nUpdating training plots with test results ...")
+    update_train_plots()
+
 
 if __name__ == "__main__":
     main()
