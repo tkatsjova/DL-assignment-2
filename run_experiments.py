@@ -46,6 +46,8 @@ HYPERPARAM_EXPERIMENTS = [
     {"model": "cnn_gru", "lr": 5e-4, "batch_size": 16},
     {"model": "cnn_gru", "lr": 1e-4, "batch_size": 16},
     {"model": "cnn_gru", "lr": 1e-3, "batch_size": 32},
+    {"model": "cnn_gru", "lr": 5e-4, "batch_size": 32},
+    {"model": "cnn_gru", "lr": 1e-4, "batch_size": 32},
 ]
 
 ALL_EXPERIMENTS = MODEL_EXPERIMENTS + HYPERPARAM_EXPERIMENTS
