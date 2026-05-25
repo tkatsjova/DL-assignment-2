@@ -192,7 +192,7 @@ def print_summary(all_results: list[dict]) -> None:
     for r in sorted(all_results, key=lambda x: x["best_val_acc"], reverse=True):
         gap = r["final_train_acc"] - r["best_val_acc"]
         print(
-            f"{r['scenario']:<8} "
+            f"{r.get('scenario', '?'):<8} "
             f"{r['model_name']:<14} "
             f"{r['lr']:<8.0e} "
             f"{r['batch_size']:<4} "
