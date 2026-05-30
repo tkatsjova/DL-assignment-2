@@ -1,7 +1,7 @@
 import json
 import random
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import numpy as np
@@ -11,7 +11,7 @@ import torch.optim as optim
 from tqdm import tqdm
 
 from src.data.config import ORIGINAL_SAMPLING_RATE, DOWNSAMPLE_FACTOR, WINDOW_SECONDS, OVERLAP
-from src.data.data_loading import list_h5_files, extract_label_from_filename
+from src.data.data_loading import ID_TO_LABEL, list_h5_files, extract_label_from_filename
 from src.data.dataset import MEGWindowDataset, create_dataloader
 from src.models.model import SimpleCNN1D, ResNet1D, CNNGRU, EEGNet, CNNGRUAttention, MEGGraphNet
 
@@ -87,18 +87,25 @@ def get_device() -> torch.device:
     return torch.device("cpu")
 
 
-def get_model(name: str, device: torch.device) -> nn.Module:
-    models = {
-        "simple_cnn":    lambda: SimpleCNN1D(num_channels=248, num_classes=4),
-        "resnet":        lambda: ResNet1D(num_channels=248, num_classes=4),
-        "cnn_gru":       lambda: CNNGRU(num_channels=248, num_classes=4),
-        "eegnet":        lambda: EEGNet(n_channels=248, n_timepoints=N_TIMEPOINTS, n_classes=4),
-        "cnn_gru_attn":  lambda: CNNGRUAttention(n_channels=248, n_classes=4),
-        "meg_graphnet":  lambda: MEGGraphNet(n_nodes=248, n_timepoints=N_TIMEPOINTS, n_classes=4),
-    }
-    if name not in models:
-        raise ValueError(f"Unknown model '{name}'. Options: {list(models)}")
-    return models[name]().to(device)
+def get_model(name: str, device: torch.device, dropout: float | None = None) -> nn.Module:
+    def make():
+        if name == "simple_cnn":
+            return SimpleCNN1D(num_channels=248, num_classes=4)
+        if name == "resnet":
+            return ResNet1D(num_channels=248, num_classes=4)
+        if name == "cnn_gru":
+            return CNNGRU(num_channels=248, num_classes=4)
+        if name == "eegnet":
+            return EEGNet(n_channels=248, n_timepoints=N_TIMEPOINTS, n_classes=4)
+        if name == "cnn_gru_attn":
+            kwargs = {"n_channels": 248, "n_classes": 4}
+            if dropout is not None:
+                kwargs["dropout_rate"] = dropout
+            return CNNGRUAttention(**kwargs)
+        if name == "meg_graphnet":
+            return MEGGraphNet(n_nodes=248, n_timepoints=N_TIMEPOINTS, n_classes=4)
+        raise ValueError(f"Unknown model '{name}'. Options: simple_cnn, resnet, cnn_gru, eegnet, cnn_gru_attn, meg_graphnet")
+    return make().to(device)
 
 
 def get_save_path(name: str, output_dir: Path) -> Path:
