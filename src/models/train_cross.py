@@ -12,11 +12,7 @@ from tqdm import tqdm
 from src.data.config import ORIGINAL_SAMPLING_RATE, DOWNSAMPLE_FACTOR, WINDOW_SECONDS, OVERLAP
 from src.data.data_loading import ID_TO_LABEL, list_h5_files, extract_label_from_filename
 from src.data.dataset import MEGWindowDataset, create_dataloader
-from src.models.model import SimpleCNN1D, ResNet1D, CNNGRU, EEGNet, CNNGRUAttention, MEGGraphNet
-from src.models.train import set_seed, stratified_split, check_accuracy
-
-N_TIMEPOINTS = int(WINDOW_SECONDS * ORIGINAL_SAMPLING_RATE / DOWNSAMPLE_FACTOR)
-
+from src.models.train import set_seed, get_device, get_model, stratified_split, check_accuracy
 
 MODEL_NAME = "cnn_gru"
 # options: "simple_cnn" | "resnet" | "cnn_gru" | "eegnet" | "cnn_gru_attn" | "meg_graphnet"
@@ -31,32 +27,6 @@ LR_PATIENCE = 7
 
 # Auto-suffix encodes key hyperparameters so each experiment saves to its own file.
 RUN_SUFFIX = f"_lr{LR:.0e}_bs{BATCH_SIZE}"
-
-
-# ---------------------------------------------------------------------------
-# Model registry
-# ---------------------------------------------------------------------------
-
-def get_device() -> torch.device:
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    if torch.backends.mps.is_available():
-        return torch.device("mps")
-    return torch.device("cpu")
-
-
-def get_model(name: str, device: torch.device) -> nn.Module:
-    models = {
-        "simple_cnn":    lambda: SimpleCNN1D(num_channels=248, num_classes=4),
-        "resnet":        lambda: ResNet1D(num_channels=248, num_classes=4),
-        "cnn_gru":       lambda: CNNGRU(num_channels=248, num_classes=4),
-        "eegnet":        lambda: EEGNet(n_channels=248, n_timepoints=N_TIMEPOINTS, n_classes=4),
-        "cnn_gru_attn":  lambda: CNNGRUAttention(n_channels=248, n_classes=4),
-        "meg_graphnet":  lambda: MEGGraphNet(n_nodes=248, n_timepoints=N_TIMEPOINTS, n_classes=4),
-    }
-    if name not in models:
-        raise ValueError(f"Unknown model '{name}'. Options: {list(models)}")
-    return models[name]().to(device)
 
 
 def get_save_path(name: str, output_dir: Path) -> Path:

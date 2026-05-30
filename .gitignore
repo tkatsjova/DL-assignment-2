@@ -3,10 +3,6 @@
 /data/
 __MACOSX/
 
-# model outputs
-outputs/*.pt
-outputs/*.pth
-
 # python
 __pycache__/
 *.pyc

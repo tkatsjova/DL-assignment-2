@@ -1,18 +1,17 @@
 import json
 import random
 import time
-from collections import Counter, defaultdict
+from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 from tqdm import tqdm
 
 from src.data.config import ORIGINAL_SAMPLING_RATE, DOWNSAMPLE_FACTOR, WINDOW_SECONDS, OVERLAP
-from src.data.data_loading import ID_TO_LABEL, list_h5_files, extract_label_from_filename
+from src.data.data_loading import list_h5_files, extract_label_from_filename
 from src.data.dataset import MEGWindowDataset, create_dataloader
 from src.models.model import SimpleCNN1D, ResNet1D, CNNGRU, EEGNet, CNNGRUAttention, MEGGraphNet
 
@@ -146,73 +145,6 @@ def check_accuracy(model, loader, loss_fn, device):
             total_items   += n
 
     return total_loss / total_items, total_correct / total_items
-
-
-def predict_windows(model, dataset, device, batch_size=16):
-    model.eval()
-    preds, labels = [], []
-
-    with torch.no_grad():
-        for start in range(0, len(dataset), batch_size):
-            stop = min(start + batch_size, len(dataset))
-            x    = torch.from_numpy(dataset.X[start:stop]).to(device)
-            logits = model(x)
-            preds.extend(logits.argmax(dim=1).cpu().numpy())
-            labels.extend(dataset.y[start:stop])
-
-    return np.array(preds), np.array(labels)
-
-
-def majority_vote_by_file(preds, labels, file_names):
-    file_preds  = defaultdict(list)
-    file_labels = {}
-
-    for pred, label, fname in zip(preds, labels, file_names):
-        file_preds[fname].append(pred)
-        file_labels[fname] = label
-
-    final_preds, final_labels = [], []
-    for fname, pred_list in file_preds.items():
-        final_preds.append(Counter(pred_list).most_common(1)[0][0])
-        final_labels.append(file_labels[fname])
-
-    return np.array(final_preds), np.array(final_labels)
-
-
-def show_results(title, y_true, y_pred):
-    class_names = [ID_TO_LABEL[i] for i in range(4)]
-    print("\n" + "=" * 80)
-    print(title)
-    print("=" * 80)
-    print(f"Accuracy: {accuracy_score(y_true, y_pred):.4f}")
-    print("\nPrediction counts:")
-    for class_id, count in sorted(Counter(y_pred).items()):
-        print(f"  {ID_TO_LABEL[class_id]}: {count}")
-    print("\nClassification report:")
-    print(classification_report(y_true, y_pred, target_names=class_names, zero_division=0))
-    print("Confusion matrix:")
-    print(confusion_matrix(y_true, y_pred))
-
-
-def collect_metrics(y_true, y_pred) -> dict:
-    """Return a serialisable dict with all metrics needed for the report."""
-    class_names = [ID_TO_LABEL[i] for i in range(4)]
-    report = classification_report(
-        y_true, y_pred, target_names=class_names, zero_division=0, output_dict=True
-    )
-    return {
-        "accuracy":           float(accuracy_score(y_true, y_pred)),
-        "confusion_matrix":   confusion_matrix(y_true, y_pred).tolist(),
-        # per-class precision / recall / f1 — needed for (b) analysis
-        "per_class": {
-            cls: {
-                "precision": report[cls]["precision"],
-                "recall":    report[cls]["recall"],
-                "f1":        report[cls]["f1-score"],
-            }
-            for cls in class_names
-        },
-    }
 
 
 # ---------------------------------------------------------------------------
