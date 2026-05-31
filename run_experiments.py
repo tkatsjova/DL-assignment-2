@@ -36,42 +36,216 @@ from src.models.train import (
 # Experiment grids
 # ---------------------------------------------------------------------------
 
-# Three models, default hyperparameters — covers assignment tasks (a) and (b)
+# Core architecture comparison.
+# These are the clean report baselines.
 MODEL_EXPERIMENTS = [
     {"model": "simple_cnn",   "lr": 1e-3, "batch_size": 16},
     {"model": "cnn_gru",      "lr": 1e-3, "batch_size": 16},
     {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16},
 ]
 
-# Vary LR and batch size on CNN-GRU — covers assignment task (c)
+
+# Larger but targeted hyperparameter search.
+# Goal:
+# - keep SimpleCNN as baseline,
+# - tune CNN-GRU fairly,
+# - tune CNN-GRU-Attention fairly,
+# - avoid only optimizing one model family.
 HYPERPARAM_EXPERIMENTS = [
-    {"model": "cnn_gru", "lr": 5e-4, "batch_size": 16},
-    {"model": "cnn_gru", "lr": 1e-4, "batch_size": 16},
+    # -----------------------------------------------------------------------
+    # SimpleCNN baseline tuning
+    # -----------------------------------------------------------------------
+    {"model": "simple_cnn", "lr": 2e-3,   "batch_size": 16},
+    {"model": "simple_cnn", "lr": 1.5e-3, "batch_size": 16},
+    {"model": "simple_cnn", "lr": 7e-4,   "batch_size": 16},
+    {"model": "simple_cnn", "lr": 5e-4,   "batch_size": 16},
+    {"model": "simple_cnn", "lr": 3e-4,   "batch_size": 16},
+    {"model": "simple_cnn", "lr": 1e-4,   "batch_size": 16},
+
+    {"model": "simple_cnn", "lr": 1e-3, "batch_size": 8},
+    {"model": "simple_cnn", "lr": 1e-3, "batch_size": 32},
+
+    # small regularization check for baseline
+    {"model": "simple_cnn", "lr": 1e-3, "batch_size": 16, "weight_decay": 5e-4},
+    {"model": "simple_cnn", "lr": 1e-3, "batch_size": 16, "weight_decay": 1e-3},
+    {"model": "simple_cnn", "lr": 1e-3, "batch_size": 16, "weight_decay": 5e-3},
+
+    # -----------------------------------------------------------------------
+    # CNN-GRU learning-rate tuning
+    # -----------------------------------------------------------------------
+    {"model": "cnn_gru", "lr": 2e-3,   "batch_size": 16},
+    {"model": "cnn_gru", "lr": 1.5e-3, "batch_size": 16},
+    {"model": "cnn_gru", "lr": 1.2e-3, "batch_size": 16},
+    {"model": "cnn_gru", "lr": 1e-3,   "batch_size": 16},
+    {"model": "cnn_gru", "lr": 8e-4,   "batch_size": 16},
+    {"model": "cnn_gru", "lr": 7e-4,   "batch_size": 16},
+    {"model": "cnn_gru", "lr": 5e-4,   "batch_size": 16},
+    {"model": "cnn_gru", "lr": 3e-4,   "batch_size": 16},
+    {"model": "cnn_gru", "lr": 1e-4,   "batch_size": 16},
+
+    # CNN-GRU batch-size check
+    {"model": "cnn_gru", "lr": 1e-3, "batch_size": 8},
     {"model": "cnn_gru", "lr": 1e-3, "batch_size": 32},
+    {"model": "cnn_gru", "lr": 5e-4, "batch_size": 8},
     {"model": "cnn_gru", "lr": 5e-4, "batch_size": 32},
-    {"model": "cnn_gru", "lr": 1e-4, "batch_size": 32},
+
+    # CNN-GRU weight decay around good learning rates
+    {"model": "cnn_gru", "lr": 1e-3, "batch_size": 16, "weight_decay": 1e-5},
+    {"model": "cnn_gru", "lr": 1e-3, "batch_size": 16, "weight_decay": 5e-5},
+    {"model": "cnn_gru", "lr": 1e-3, "batch_size": 16, "weight_decay": 5e-4},
+    {"model": "cnn_gru", "lr": 1e-3, "batch_size": 16, "weight_decay": 1e-3},
+    {"model": "cnn_gru", "lr": 1e-3, "batch_size": 16, "weight_decay": 5e-3},
+
+    {"model": "cnn_gru", "lr": 7e-4, "batch_size": 16, "weight_decay": 5e-4},
+    {"model": "cnn_gru", "lr": 7e-4, "batch_size": 16, "weight_decay": 1e-3},
+    {"model": "cnn_gru", "lr": 7e-4, "batch_size": 16, "weight_decay": 5e-3},
+
+    {"model": "cnn_gru", "lr": 5e-4, "batch_size": 16, "weight_decay": 5e-4},
+    {"model": "cnn_gru", "lr": 5e-4, "batch_size": 16, "weight_decay": 1e-3},
+    {"model": "cnn_gru", "lr": 5e-4, "batch_size": 16, "weight_decay": 5e-3},
+
+    # -----------------------------------------------------------------------
+    # CNN-GRU-Attention learning-rate tuning
+    # -----------------------------------------------------------------------
+    {"model": "cnn_gru_attn", "lr": 2e-3,   "batch_size": 16},
+    {"model": "cnn_gru_attn", "lr": 1.5e-3, "batch_size": 16},
+    {"model": "cnn_gru_attn", "lr": 1.2e-3, "batch_size": 16},
+    {"model": "cnn_gru_attn", "lr": 1e-3,   "batch_size": 16},
+    {"model": "cnn_gru_attn", "lr": 8e-4,   "batch_size": 16},
+    {"model": "cnn_gru_attn", "lr": 7e-4,   "batch_size": 16},
+    {"model": "cnn_gru_attn", "lr": 5e-4,   "batch_size": 16},
+    {"model": "cnn_gru_attn", "lr": 3e-4,   "batch_size": 16},
+    {"model": "cnn_gru_attn", "lr": 1e-4,   "batch_size": 16},
+
+    # CNN-GRU-Attention batch-size check
+    {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 8},
+    {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 32},
+    {"model": "cnn_gru_attn", "lr": 5e-4, "batch_size": 8},
+    {"model": "cnn_gru_attn", "lr": 5e-4, "batch_size": 32},
+
+    # CNN-GRU-Attention weight decay around good learning rates
+    {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "weight_decay": 1e-5},
+    {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "weight_decay": 5e-5},
+    {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "weight_decay": 5e-4},
+    {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "weight_decay": 1e-3},
+    {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "weight_decay": 5e-3},
+
+    {"model": "cnn_gru_attn", "lr": 7e-4, "batch_size": 16, "weight_decay": 5e-4},
+    {"model": "cnn_gru_attn", "lr": 7e-4, "batch_size": 16, "weight_decay": 1e-3},
+    {"model": "cnn_gru_attn", "lr": 7e-4, "batch_size": 16, "weight_decay": 5e-3},
+
+    {"model": "cnn_gru_attn", "lr": 5e-4, "batch_size": 16, "weight_decay": 5e-4},
+    {"model": "cnn_gru_attn", "lr": 5e-4, "batch_size": 16, "weight_decay": 1e-3},
+    {"model": "cnn_gru_attn", "lr": 5e-4, "batch_size": 16, "weight_decay": 5e-3},
 ]
 
-# Improvement experiments on CNN-GRU-Attn — covers assignment task (d)
-# Baseline: dropout=0.4, weight_decay=1e-4, overlap=0.5, window=2s
-#
-# Phase 1 — regularisation sweep (Alexandra: bump dropout + weight_decay)
-# Phase 2 — preprocessing sweep (Alexandra: reduce overlap, widen window)
-# All other params fixed at their baseline values.
+
+# Improvement experiments.
+# These focus on overfitting and window correlation:
+# - dropout
+# - stronger weight decay
+# - reduced overlap
+# - longer windows
+# - combined regularization + preprocessing
 IMPROVEMENT_EXPERIMENTS = [
-    # --- Phase 1: regularisation ---
+    # -----------------------------------------------------------------------
+    # CNN-GRU-Attention regularization
+    # Your previous run showed 0.5/0.6 dropout did not help much,
+    # so include milder dropout too.
+    # -----------------------------------------------------------------------
+    {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "dropout": 0.2, "weight_decay": 1e-4},
+    {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "dropout": 0.3, "weight_decay": 1e-4},
+    {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "dropout": 0.4, "weight_decay": 1e-4},
     {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "dropout": 0.5, "weight_decay": 1e-4},
     {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "dropout": 0.6, "weight_decay": 1e-4},
+
+    {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "dropout": 0.3, "weight_decay": 5e-4},
+    {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "dropout": 0.4, "weight_decay": 5e-4},
     {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "dropout": 0.5, "weight_decay": 5e-4},
+
+    {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "dropout": 0.3, "weight_decay": 1e-3},
+    {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "dropout": 0.4, "weight_decay": 1e-3},
     {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "dropout": 0.5, "weight_decay": 1e-3},
-    {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "dropout": 0.6, "weight_decay": 5e-4},
-    # --- Phase 2: preprocessing ---
+
+    # -----------------------------------------------------------------------
+    # CNN-GRU regularization too, because CNN-GRU was competitive before.
+    # -----------------------------------------------------------------------
+    {"model": "cnn_gru", "lr": 1e-3, "batch_size": 16, "dropout": 0.2, "weight_decay": 1e-4},
+    {"model": "cnn_gru", "lr": 1e-3, "batch_size": 16, "dropout": 0.3, "weight_decay": 1e-4},
+    {"model": "cnn_gru", "lr": 1e-3, "batch_size": 16, "dropout": 0.4, "weight_decay": 1e-4},
+    {"model": "cnn_gru", "lr": 1e-3, "batch_size": 16, "dropout": 0.5, "weight_decay": 1e-4},
+
+    {"model": "cnn_gru", "lr": 1e-3, "batch_size": 16, "dropout": 0.3, "weight_decay": 5e-4},
+    {"model": "cnn_gru", "lr": 1e-3, "batch_size": 16, "dropout": 0.4, "weight_decay": 5e-4},
+    {"model": "cnn_gru", "lr": 1e-3, "batch_size": 16, "dropout": 0.3, "weight_decay": 1e-3},
+    {"model": "cnn_gru", "lr": 1e-3, "batch_size": 16, "dropout": 0.4, "weight_decay": 1e-3},
+
+    # -----------------------------------------------------------------------
+    # Preprocessing-only sweep for CNN-GRU-Attention
+    # -----------------------------------------------------------------------
     {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "overlap": 0.25},
     {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "overlap": 0.0},
+    {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "window_seconds": 1.5},
+    {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "window_seconds": 2.5},
     {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "window_seconds": 3.0},
+    {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "window_seconds": 4.0},
+
+    # -----------------------------------------------------------------------
+    # Preprocessing-only sweep for CNN-GRU
+    # -----------------------------------------------------------------------
+    {"model": "cnn_gru", "lr": 1e-3, "batch_size": 16, "overlap": 0.25},
+    {"model": "cnn_gru", "lr": 1e-3, "batch_size": 16, "overlap": 0.0},
+    {"model": "cnn_gru", "lr": 1e-3, "batch_size": 16, "window_seconds": 1.5},
+    {"model": "cnn_gru", "lr": 1e-3, "batch_size": 16, "window_seconds": 2.5},
+    {"model": "cnn_gru", "lr": 1e-3, "batch_size": 16, "window_seconds": 3.0},
+    {"model": "cnn_gru", "lr": 1e-3, "batch_size": 16, "window_seconds": 4.0},
+
+    # -----------------------------------------------------------------------
+    # Combined regularization + reduced overlap
+    # -----------------------------------------------------------------------
+    {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "dropout": 0.3, "weight_decay": 5e-4, "overlap": 0.25},
+    {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "dropout": 0.4, "weight_decay": 5e-4, "overlap": 0.25},
+    {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "dropout": 0.3, "weight_decay": 1e-3, "overlap": 0.25},
+    {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "dropout": 0.4, "weight_decay": 1e-3, "overlap": 0.25},
+
+    {"model": "cnn_gru", "lr": 1e-3, "batch_size": 16, "dropout": 0.3, "weight_decay": 5e-4, "overlap": 0.25},
+    {"model": "cnn_gru", "lr": 1e-3, "batch_size": 16, "dropout": 0.4, "weight_decay": 5e-4, "overlap": 0.25},
+    {"model": "cnn_gru", "lr": 1e-3, "batch_size": 16, "dropout": 0.3, "weight_decay": 1e-3, "overlap": 0.25},
+    {"model": "cnn_gru", "lr": 1e-3, "batch_size": 16, "dropout": 0.4, "weight_decay": 1e-3, "overlap": 0.25},
+
+    # -----------------------------------------------------------------------
+    # Combined regularization + longer windows
+    # -----------------------------------------------------------------------
+    {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "dropout": 0.3, "weight_decay": 5e-4, "window_seconds": 3.0},
+    {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "dropout": 0.4, "weight_decay": 5e-4, "window_seconds": 3.0},
+    {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "dropout": 0.3, "weight_decay": 1e-3, "window_seconds": 3.0},
+    {"model": "cnn_gru_attn", "lr": 1e-3, "batch_size": 16, "dropout": 0.4, "weight_decay": 1e-3, "window_seconds": 3.0},
+
+    {"model": "cnn_gru", "lr": 1e-3, "batch_size": 16, "dropout": 0.3, "weight_decay": 5e-4, "window_seconds": 3.0},
+    {"model": "cnn_gru", "lr": 1e-3, "batch_size": 16, "dropout": 0.4, "weight_decay": 5e-4, "window_seconds": 3.0},
+    {"model": "cnn_gru", "lr": 1e-3, "batch_size": 16, "dropout": 0.3, "weight_decay": 1e-3, "window_seconds": 3.0},
+    {"model": "cnn_gru", "lr": 1e-3, "batch_size": 16, "dropout": 0.4, "weight_decay": 1e-3, "window_seconds": 3.0},
 ]
 
-ALL_EXPERIMENTS = MODEL_EXPERIMENTS + HYPERPARAM_EXPERIMENTS
+
+# Remove exact duplicates while keeping order.
+_seen = set()
+ALL_EXPERIMENTS = []
+
+for cfg in MODEL_EXPERIMENTS + HYPERPARAM_EXPERIMENTS:
+    key = (
+        cfg.get("model"),
+        cfg.get("lr"),
+        cfg.get("batch_size"),
+        cfg.get("dropout"),
+        cfg.get("weight_decay", 1e-4),
+        cfg.get("overlap"),
+        cfg.get("window_seconds"),
+    )
+
+    if key not in _seen:
+        ALL_EXPERIMENTS.append(cfg)
+        _seen.add(key)
 
 # ---------------------------------------------------------------------------
 # Shared config
@@ -81,7 +255,7 @@ SEED        = 42
 N_EPOCHS    = 100
 ES_PATIENCE = 15
 LR_PATIENCE = 7
-DATA_DIR    = Path("Final Project data")
+DATA_DIR    = Path("Final Project data") / "Final Project data"
 OUTPUT_DIR  = Path("outputs")
 
 DEFAULT_DATASET_PARAMS = dict(
@@ -110,7 +284,7 @@ def run_one(
 ) -> dict:
 
     # Build a unique run key that encodes every non-default param
-    run_key = f"{scenario}_{model_name}_lr{lr:.0e}_bs{batch_size}"
+    run_key = f"{scenario}_{model_name}_lr{lr:.1e}_bs{batch_size}"
     if dropout is not None:
         run_key += f"_do{dropout}"
     if weight_decay != 1e-4:
@@ -249,7 +423,7 @@ def print_summary(all_results: list[dict]) -> None:
         print(
             f"{r.get('scenario', '?'):<8} "
             f"{r['model_name']:<14} "
-            f"{r['lr']:<8.0e} "
+            f"{r['lr']:<8.1e} "
             f"{r['batch_size']:<4} "
             f"{str(do):<5} "
             f"{wd:<8.0e} "
