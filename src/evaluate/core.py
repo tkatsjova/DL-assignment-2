@@ -26,7 +26,23 @@ def load_model(name: str, checkpoint_path: Path, device: torch.device) -> tuple[
 
 def find_checkpoint(output_dir: Path, prefix: str, name: str) -> Path | None:
     matches = list(output_dir.glob(f"best_{prefix}_{name}_lr*.pt"))
-    return matches[0] if matches else None
+    if not matches:
+        return None
+    if len(matches) == 1:
+        return matches[0]
+
+    best_path, best_acc = None, -1.0
+    for path in matches:
+        try:
+            ckpt = torch.load(path, map_location="cpu", weights_only=False)
+            acc  = float(ckpt.get("val_accuracy", 0.0))
+            if acc > best_acc:
+                best_acc = acc
+                best_path = path
+        except Exception as exc:
+            print(f"  [warn] could not read {path.name}: {exc}")
+    print(f"  [checkpoint] selected {best_path.name}  (val_acc={best_acc:.4f})")
+    return best_path
 
 
 def predict(model: nn.Module, dataset: MEGWindowDataset, device: torch.device) -> tuple[np.ndarray, np.ndarray]:

@@ -25,7 +25,13 @@ CHUNK_SIZE  = 8    # files loaded into RAM at once — PDF recommendation
 ES_PATIENCE = 15
 LR_PATIENCE = 7
 
-# Auto-suffix encodes key hyperparameters so each experiment saves to its own file.
+# Regularisation — patched externally by main.py for experiment configs.
+WEIGHT_DECAY: float       = 1e-4
+DROPOUT:      float | None = None
+
+# Auto-suffix encodes key hyperparameters so each experiment saves to its own
+# file.  main.py will overwrite this before calling main() when running
+# non-default hyperparameter configs.
 RUN_SUFFIX = f"_lr{LR:.0e}_bs{BATCH_SIZE}"
 
 
@@ -121,10 +127,10 @@ def main():
     val_data   = MEGWindowDataset(files=val_files, **dataset_params)
     val_loader = create_dataloader(val_data, batch_size=BATCH_SIZE, shuffle=False)
 
-    model   = get_model(MODEL_NAME, device)
+    model   = get_model(MODEL_NAME, device, dropout=DROPOUT)
     loss_fn = nn.CrossEntropyLoss()
 
-    optimizer = optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-4)
+    optimizer = optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", factor=0.5, patience=LR_PATIENCE,
     )
@@ -197,6 +203,8 @@ def main():
         "seed":             SEED,
         "lr":               LR,
         "batch_size":       BATCH_SIZE,
+        "weight_decay":     WEIGHT_DECAY,
+        "dropout":          DROPOUT,
         "best_epoch":       checkpoint["epoch"],
         "training_time_s":  round(training_time_s, 1),
         "final_train_acc":  round(final_train_acc, 4),
