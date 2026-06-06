@@ -22,7 +22,7 @@ import argparse
 import importlib
 from pathlib import Path
 
-DATA_DIR   = Path("Final Project data")
+DATA_DIR = Path("Final Project data")
 OUTPUT_DIR = Path("outputs")
 
 MODELS = [
@@ -70,12 +70,12 @@ def run_eda() -> None:
         plot_value_distribution,
     )
 
-    intra_train = DATA_DIR / "Intra"  / "train"
-    intra_test  = DATA_DIR / "Intra"  / "test"
-    cross_train = DATA_DIR / "Cross"  / "train"
-    cross_test1 = DATA_DIR / "Cross"  / "test1"
-    cross_test2 = DATA_DIR / "Cross"  / "test2"
-    cross_test3 = DATA_DIR / "Cross"  / "test3"
+    intra_train = DATA_DIR / "Intra" / "train"
+    intra_test  = DATA_DIR / "Intra" / "test"
+    cross_train = DATA_DIR / "Cross" / "train"
+    cross_test1 = DATA_DIR / "Cross" / "test1"
+    cross_test2 = DATA_DIR / "Cross" / "test2"
+    cross_test3 = DATA_DIR / "Cross" / "test3"
 
     print("=== Dataset Inspection ===")
     for folder in (intra_train, intra_test, cross_train, cross_test1, cross_test2, cross_test3):
@@ -97,10 +97,10 @@ def run_eda() -> None:
 
 
 def _run_module(
-    module_path:  str,
-    model_name:   str,
+    module_path: str,
+    model_name: str,
     weight_decay: float = 1e-4,
-    dropout:      float | None = None,
+    dropout: float | None = None,
 ) -> None:
 
     mod = importlib.import_module(module_path)
@@ -109,24 +109,23 @@ def _run_module(
     do_tag = f"_do{dropout}" if dropout is not None else ""
     new_suffix = f"_lr{mod.LR:.0e}_bs{mod.BATCH_SIZE}{wd_tag}{do_tag}"
 
-    scenario  = "cross" if "cross" in module_path else "intra"
+    scenario = "cross" if "cross" in module_path else "intra"
     json_path = OUTPUT_DIR / f"results_{scenario}_{model_name}{new_suffix}.json"
     if json_path.exists():
         print(f"\n[SKIP] {json_path.name} — already done\n")
         return
 
     orig = {
-        "MODEL_NAME":   mod.MODEL_NAME,
+        "MODEL_NAME": mod.MODEL_NAME,
         "WEIGHT_DECAY": getattr(mod, "WEIGHT_DECAY", 1e-4),
-        "DROPOUT":      getattr(mod, "DROPOUT", None),
-        "RUN_SUFFIX":   mod.RUN_SUFFIX,
+        "DROPOUT": getattr(mod, "DROPOUT", None),
+        "RUN_SUFFIX": mod.RUN_SUFFIX,
     }
 
-    # Patch
-    mod.MODEL_NAME   = model_name
+    mod.MODEL_NAME = model_name
     mod.WEIGHT_DECAY = weight_decay
-    mod.DROPOUT      = dropout
-    mod.RUN_SUFFIX   = new_suffix
+    mod.DROPOUT = dropout
+    mod.RUN_SUFFIX = new_suffix
 
     script = module_path.split(".")[-1]
     wd_str = f"wd={weight_decay:.0e}"
@@ -145,7 +144,7 @@ def _run_module(
 def run_training(intra: bool, cross: bool) -> None:
     for model in MODELS:
         if intra:
-            _run_module("src.models.train",       model)
+            _run_module("src.models.train", model)
         if cross:
             _run_module("src.models.train_cross", model)
 
@@ -183,10 +182,10 @@ def run_final() -> None:
     for i, cfg in enumerate(FINAL_CONFIGS, 1):
         print(f"\n[{i}/{n}]", end="")
         _run_module(
-            module_path  = cfg["module"],
-            model_name   = cfg["model"],
-            weight_decay = cfg.get("weight_decay", 1e-4),
-            dropout      = cfg.get("dropout"),
+            module_path=cfg["module"],
+            model_name=cfg["model"],
+            weight_decay=cfg.get("weight_decay", 1e-4),
+            dropout=cfg.get("dropout"),
         )
 
     print(f"\n{'=' * 70}")
@@ -199,15 +198,15 @@ def run_final() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--train",    action="store_true",
+    parser.add_argument("--train", action="store_true",
                         help="Train all models with default hyperparameters")
-    parser.add_argument("--final",    action="store_true",
+    parser.add_argument("--final", action="store_true",
                         help="Run curated report configs (WD/dropout ablations + best models)")
     parser.add_argument("--evaluate", action="store_true",
                         help="Evaluate saved checkpoints on test sets and generate report figures")
-    parser.add_argument("--intra",    action="store_true",
+    parser.add_argument("--intra", action="store_true",
                         help="Intra-subject only (used with --train / --evaluate)")
-    parser.add_argument("--cross",    action="store_true",
+    parser.add_argument("--cross", action="store_true",
                         help="Cross-subject only (used with --train / --evaluate)")
     args = parser.parse_args()
 

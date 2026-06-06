@@ -21,24 +21,17 @@ N_TIMEPOINTS = int(WINDOW_SECONDS * ORIGINAL_SAMPLING_RATE / DOWNSAMPLE_FACTOR)
 MODEL_NAME = "cnn_gru"
 # options: "simple_cnn" | "resnet" | "cnn_gru" | "eegnet" | "cnn_gru_attn" | "meg_graphnet"
 
-SEED       = 42
-N_EPOCHS   = 100   # early stopping decides the actual stopping point
+SEED = 42
+N_EPOCHS = 100  # early stopping decides the actual stopping point
 BATCH_SIZE = 16
-LR         = 1e-3
-# early stopping: stop if val_acc hasn't improved for this many epochs
-ES_PATIENCE  = 15
-# LR scheduler: halve LR if val_loss doesn't improve for this many epochs
-LR_PATIENCE  = 7
+LR = 1e-3
+ES_PATIENCE = 15
+LR_PATIENCE = 7
 
-# Regularisation — set once here so main.py can patch them without touching
-# this file.  WEIGHT_DECAY applies to AdamW; DROPOUT is forwarded to
-# CNNGRUAttention (None means use the model's built-in default).
-WEIGHT_DECAY: float       = 1e-4
-DROPOUT:      float | None = None
+# main.py patches these before calling main() for non-default configs
+WEIGHT_DECAY: float = 1e-4
+DROPOUT: float | None = None
 
-# Auto-suffix encodes key hyperparameters so each experiment saves to its own
-# file.  main.py will overwrite this before calling main() when running
-# non-default hyperparameter configs.
 RUN_SUFFIX = f"_lr{LR:.0e}_bs{BATCH_SIZE}"
 
 
@@ -134,14 +127,14 @@ def train_one_epoch(model, loader, loss_fn, optimizer, device):
         x, y = x.to(device), y.to(device)
         optimizer.zero_grad()
         logits = model(x)
-        loss   = loss_fn(logits, y)
+        loss = loss_fn(logits, y)
         loss.backward()
         optimizer.step()
 
         n = x.size(0)
-        total_loss    += loss.item() * n
+        total_loss += loss.item() * n
         total_correct += (logits.argmax(dim=1) == y).sum().item()
-        total_items   += n
+        total_items += n
 
     return total_loss / total_items, total_correct / total_items
 
@@ -154,12 +147,12 @@ def check_accuracy(model, loader, loss_fn, device):
         for x, y in tqdm(loader, desc="Evaluating", leave=False):
             x, y = x.to(device), y.to(device)
             logits = model(x)
-            loss   = loss_fn(logits, y)
+            loss = loss_fn(logits, y)
 
             n = x.size(0)
-            total_loss    += loss.item() * n
+            total_loss += loss.item() * n
             total_correct += (logits.argmax(dim=1) == y).sum().item()
-            total_items   += n
+            total_items += n
 
     return total_loss / total_items, total_correct / total_items
 
@@ -171,18 +164,18 @@ def check_accuracy(model, loader, loss_fn, device):
 def main():
     set_seed(SEED)
 
-    data_dir   = Path("Final Project data")
+    data_dir = Path("Final Project data")
     output_dir = Path("outputs")
     output_dir.mkdir(exist_ok=True)
 
     train_folder = data_dir / "Intra" / "train"
 
-    device    = get_device()
+    device = get_device()
     save_path = get_save_path(MODEL_NAME, output_dir)
 
-    print(f"Device:  {device}")
-    print(f"Model:   {MODEL_NAME}")
-    print(f"Seed:    {SEED}")
+    print(f"Device: {device}")
+    print(f"Model: {MODEL_NAME}")
+    print(f"Seed: {SEED}")
 
     dataset_params = dict(
         original_sampling_rate=ORIGINAL_SAMPLING_RATE,
@@ -191,21 +184,20 @@ def main():
         overlap=OVERLAP,
     )
 
-    # Stratified 80/20 split — each class contributes equally to val
-    all_train_files          = list_h5_files(train_folder)
-    train_files, val_files   = stratified_split(all_train_files, val_ratio=0.2, seed=SEED)
+    all_train_files = list_h5_files(train_folder)
+    train_files, val_files = stratified_split(all_train_files, val_ratio=0.2, seed=SEED)
 
     print(f"\nTrain files: {len(train_files)} | Val files: {len(val_files)}")
     val_label_counts = Counter(extract_label_from_filename(f) for f in val_files)
     print(f"Val class distribution: { {ID_TO_LABEL[k]: v for k, v in sorted(val_label_counts.items())} }")
 
     train_data = MEGWindowDataset(files=train_files, **dataset_params)
-    val_data   = MEGWindowDataset(files=val_files,   **dataset_params)
+    val_data = MEGWindowDataset(files=val_files, **dataset_params)
 
     train_loader = create_dataloader(train_data, batch_size=BATCH_SIZE, shuffle=True)
-    val_loader   = create_dataloader(val_data,   batch_size=BATCH_SIZE, shuffle=False)
+    val_loader = create_dataloader(val_data, batch_size=BATCH_SIZE, shuffle=False)
 
-    model   = get_model(MODEL_NAME, device, dropout=DROPOUT)
+    model = get_model(MODEL_NAME, device, dropout=DROPOUT)
     loss_fn = nn.CrossEntropyLoss()
 
     optimizer = optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
@@ -218,10 +210,10 @@ def main():
         patience=LR_PATIENCE,
     )
 
-    best_val_acc  = 0.0
+    best_val_acc = 0.0
     best_val_loss = float("inf")
-    es_counter    = 0          # epochs since last val_acc improvement
-    history       = []         # one dict per epoch, for plotting / reporting
+    es_counter = 0
+    history = []
 
     print(f"\nStarting intra-subject training (max {N_EPOCHS} epochs, "
           f"early stop patience={ES_PATIENCE})...\n")
@@ -230,7 +222,7 @@ def main():
 
     for epoch in range(1, N_EPOCHS + 1):
         train_loss, train_acc = train_one_epoch(model, train_loader, loss_fn, optimizer, device)
-        val_loss,   val_acc   = check_accuracy(model, val_loader,   loss_fn, device)
+        val_loss, val_acc = check_accuracy(model, val_loader, loss_fn, device)
 
         current_lr = optimizer.param_groups[0]["lr"]
         print(
@@ -243,25 +235,23 @@ def main():
         history.append(dict(
             epoch=epoch,
             train_loss=train_loss, train_acc=train_acc,
-            val_loss=val_loss,     val_acc=val_acc,
+            val_loss=val_loss, val_acc=val_acc,
         ))
 
-        # Step scheduler on val_loss
         scheduler.step(val_loss)
 
-        # Save best model (tracked by val_acc)
         if val_acc > best_val_acc:
-            best_val_acc  = val_acc
+            best_val_acc = val_acc
             best_val_loss = val_loss
-            es_counter    = 0
+            es_counter = 0
             torch.save(
                 {
                     "model_state_dict": model.state_dict(),
-                    "val_accuracy":     best_val_acc,
-                    "val_loss":         best_val_loss,
-                    "epoch":            epoch,
-                    "model_name":       MODEL_NAME,
-                    "history":          history,
+                    "val_accuracy": best_val_acc,
+                    "val_loss": best_val_loss,
+                    "epoch": epoch,
+                    "model_name": MODEL_NAME,
+                    "history": history,
                 },
                 save_path,
             )
@@ -273,7 +263,6 @@ def main():
                 break
 
     training_time_s = time.time() - t_start
-    # train acc at the last completed epoch — used for (d): train vs test gap
     final_train_acc = history[-1]["train_acc"] if history else 0.0
 
     print(f"\nTraining finished in {training_time_s:.1f}s. Best val accuracy: {best_val_acc:.4f}")
@@ -282,18 +271,18 @@ def main():
     n_params = sum(p.numel() for p in model.parameters())
 
     results = {
-        "model_name":       MODEL_NAME,
-        "n_params":         n_params,
-        "seed":             SEED,
-        "lr":               LR,
-        "batch_size":       BATCH_SIZE,
-        "weight_decay":     WEIGHT_DECAY,
-        "dropout":          DROPOUT,
-        "best_epoch":       checkpoint["epoch"],
-        "training_time_s":  round(training_time_s, 1),
-        "final_train_acc":  round(final_train_acc, 4),
-        "best_val_acc":     round(best_val_acc, 4),
-        "history":          history,
+        "model_name": MODEL_NAME,
+        "n_params": n_params,
+        "seed": SEED,
+        "lr": LR,
+        "batch_size": BATCH_SIZE,
+        "weight_decay": WEIGHT_DECAY,
+        "dropout": DROPOUT,
+        "best_epoch": checkpoint["epoch"],
+        "training_time_s": round(training_time_s, 1),
+        "final_train_acc": round(final_train_acc, 4),
+        "best_val_acc": round(best_val_acc, 4),
+        "history": history,
     }
 
     json_path = output_dir / f"results_intra_{MODEL_NAME}{RUN_SUFFIX}.json"

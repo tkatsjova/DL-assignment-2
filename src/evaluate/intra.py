@@ -23,8 +23,8 @@ DATASET_PARAMS = dict(
 
 
 def run(data_dir: Path, output_dir: Path) -> dict:
-    device       = get_device()
-    test_folder  = data_dir / "Intra" / "test"
+    device = get_device()
+    test_folder = data_dir / "Intra" / "test"
     train_folder = data_dir / "Intra" / "train"
 
     print(f"Device: {device}")
@@ -60,10 +60,10 @@ def run(data_dir: Path, output_dir: Path) -> dict:
         print(f"  Train eval accuracy (eval mode, for gap): {train_eval_acc:.4f}")
 
         all_results[name] = {
-            "val_accuracy":                val_acc,
-            "best_epoch":                  best_epoch,
-            "train_eval_accuracy":         train_eval_acc,
-            "window_level":                window_metrics,
+            "val_accuracy": val_acc,
+            "best_epoch": best_epoch,
+            "train_eval_accuracy": train_eval_acc,
+            "window_level": window_metrics,
             "file_majority_vote_accuracy": mv_acc,
         }
 

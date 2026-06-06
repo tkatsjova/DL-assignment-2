@@ -17,21 +17,17 @@ from src.models.train import set_seed, get_device, get_model, stratified_split, 
 MODEL_NAME = "cnn_gru"
 # options: "simple_cnn" | "resnet" | "cnn_gru" | "eegnet" | "cnn_gru_attn" | "meg_graphnet"
 
-SEED        = 42
-N_EPOCHS    = 100
-BATCH_SIZE  = 16
-LR          = 1e-3
-CHUNK_SIZE  = 8    # files loaded into RAM at once — PDF recommendation
+SEED = 42
+N_EPOCHS = 100
+BATCH_SIZE = 16
+LR = 1e-3
+CHUNK_SIZE = 8  # files loaded into RAM at once
 ES_PATIENCE = 15
 LR_PATIENCE = 7
 
-# Regularisation — patched externally by main.py for experiment configs.
-WEIGHT_DECAY: float       = 1e-4
-DROPOUT:      float | None = None
+WEIGHT_DECAY: float = 1e-4
+DROPOUT: float | None = None
 
-# Auto-suffix encodes key hyperparameters so each experiment saves to its own
-# file.  main.py will overwrite this before calling main() when running
-# non-default hyperparameter configs.
 RUN_SUFFIX = f"_lr{LR:.0e}_bs{BATCH_SIZE}"
 
 
@@ -62,7 +58,7 @@ def run_epoch_chunked(
 
     for chunk_idx, chunk_files in enumerate(chunks):
         chunk_dataset = MEGWindowDataset(files=chunk_files, **dataset_params)
-        chunk_loader  = create_dataloader(chunk_dataset, batch_size=BATCH_SIZE, shuffle=True)
+        chunk_loader = create_dataloader(chunk_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
         chunk_loss = chunk_correct = chunk_total = 0
 
@@ -70,18 +66,18 @@ def run_epoch_chunked(
             x, y = x.to(device), y.to(device)
             optimizer.zero_grad()
             logits = model(x)
-            loss   = loss_fn(logits, y)
+            loss = loss_fn(logits, y)
             loss.backward()
             optimizer.step()
 
             n = x.size(0)
-            chunk_loss    += loss.item() * n
+            chunk_loss += loss.item() * n
             chunk_correct += (logits.argmax(dim=1) == y).sum().item()
-            chunk_total   += n
+            chunk_total += n
 
-        epoch_loss    += chunk_loss
+        epoch_loss += chunk_loss
         epoch_correct += chunk_correct
-        epoch_total   += chunk_total
+        epoch_total += chunk_total
 
     return epoch_loss / epoch_total, epoch_correct / epoch_total
 
@@ -93,18 +89,18 @@ def run_epoch_chunked(
 def main():
     set_seed(SEED)
 
-    data_dir   = Path("Final Project data")
+    data_dir = Path("Final Project data")
     output_dir = Path("outputs")
     output_dir.mkdir(exist_ok=True)
 
     train_folder = data_dir / "Cross" / "train"
 
-    device    = get_device()
+    device = get_device()
     save_path = get_save_path(MODEL_NAME, output_dir)
 
-    print(f"Device:  {device}")
-    print(f"Model:   {MODEL_NAME}")
-    print(f"Seed:    {SEED}")
+    print(f"Device: {device}")
+    print(f"Model: {MODEL_NAME}")
+    print(f"Seed: {SEED}")
 
     dataset_params = dict(
         original_sampling_rate=ORIGINAL_SAMPLING_RATE,
@@ -113,21 +109,18 @@ def main():
         overlap=OVERLAP,
     )
 
-    # Stratified 80/20 split by class — each class equally represented in val.
-    # Cross/train has 2 subjects × 4 classes × ~8 files = 64 files total.
-    all_train_files          = list_h5_files(train_folder)
-    train_files, val_files   = stratified_split(all_train_files, val_ratio=0.2, seed=SEED)
+    all_train_files = list_h5_files(train_folder)
+    train_files, val_files = stratified_split(all_train_files, val_ratio=0.2, seed=SEED)
 
     print(f"\nTrain files: {len(train_files)} | Val files: {len(val_files)}")
     val_label_counts = Counter(extract_label_from_filename(f) for f in val_files)
     print(f"Val class distribution: { {ID_TO_LABEL[k]: v for k, v in sorted(val_label_counts.items())} }")
     print(f"Chunk size: {CHUNK_SIZE} files per chunk\n")
 
-    # Val set loaded once — 20% of 64 files = ~13 files, manageable in RAM
-    val_data   = MEGWindowDataset(files=val_files, **dataset_params)
+    val_data = MEGWindowDataset(files=val_files, **dataset_params)
     val_loader = create_dataloader(val_data, batch_size=BATCH_SIZE, shuffle=False)
 
-    model   = get_model(MODEL_NAME, device, dropout=DROPOUT)
+    model = get_model(MODEL_NAME, device, dropout=DROPOUT)
     loss_fn = nn.CrossEntropyLoss()
 
     optimizer = optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
@@ -135,10 +128,10 @@ def main():
         optimizer, mode="min", factor=0.5, patience=LR_PATIENCE,
     )
 
-    best_val_acc  = 0.0
+    best_val_acc = 0.0
     best_val_loss = float("inf")
-    es_counter    = 0
-    history       = []
+    es_counter = 0
+    history = []
 
     print(f"Starting cross-subject training (max {N_EPOCHS} epochs, "
           f"early stop patience={ES_PATIENCE})...\n")
@@ -162,23 +155,23 @@ def main():
         history.append(dict(
             epoch=epoch,
             train_loss=train_loss, train_acc=train_acc,
-            val_loss=val_loss,     val_acc=val_acc,
+            val_loss=val_loss, val_acc=val_acc,
         ))
 
         scheduler.step(val_loss)
 
         if val_acc > best_val_acc:
-            best_val_acc  = val_acc
+            best_val_acc = val_acc
             best_val_loss = val_loss
-            es_counter    = 0
+            es_counter = 0
             torch.save(
                 {
                     "model_state_dict": model.state_dict(),
-                    "val_accuracy":     best_val_acc,
-                    "val_loss":         best_val_loss,
-                    "epoch":            epoch,
-                    "model_name":       MODEL_NAME,
-                    "history":          history,
+                    "val_accuracy": best_val_acc,
+                    "val_loss": best_val_loss,
+                    "epoch": epoch,
+                    "model_name": MODEL_NAME,
+                    "history": history,
                 },
                 save_path,
             )
@@ -198,18 +191,18 @@ def main():
     n_params = sum(p.numel() for p in model.parameters())
 
     results = {
-        "model_name":       MODEL_NAME,
-        "n_params":         n_params,
-        "seed":             SEED,
-        "lr":               LR,
-        "batch_size":       BATCH_SIZE,
-        "weight_decay":     WEIGHT_DECAY,
-        "dropout":          DROPOUT,
-        "best_epoch":       checkpoint["epoch"],
-        "training_time_s":  round(training_time_s, 1),
-        "final_train_acc":  round(final_train_acc, 4),
-        "best_val_acc":     round(best_val_acc, 4),
-        "history":          history,
+        "model_name": MODEL_NAME,
+        "n_params": n_params,
+        "seed": SEED,
+        "lr": LR,
+        "batch_size": BATCH_SIZE,
+        "weight_decay": WEIGHT_DECAY,
+        "dropout": DROPOUT,
+        "best_epoch": checkpoint["epoch"],
+        "training_time_s": round(training_time_s, 1),
+        "final_train_acc": round(final_train_acc, 4),
+        "best_val_acc": round(best_val_acc, 4),
+        "history": history,
     }
 
     json_path = output_dir / f"results_cross_{MODEL_NAME}{RUN_SUFFIX}.json"
