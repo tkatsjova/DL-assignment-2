@@ -85,24 +85,53 @@ def plot_param_count(intra: dict, cross: dict) -> None:
 # ── (b) intra vs cross accuracy bar chart ──────────────────────────────────────
 
 def _run_label(d: dict) -> str:
-    """Short label for a result dict — includes LR and batch size if present."""
-    name = MODEL_LABELS.get(d["model_name"], d["model_name"])
+    """Short label for a result dict — model name plus key hyperparams.
+
+    WD and dropout are appended only when they differ from the 1e-4 default,
+    so baseline runs stay concise and comparison runs are self-annotating.
+    """
+    name  = MODEL_LABELS.get(d["model_name"], d["model_name"])
+    parts = []
     if "lr" in d and "batch_size" in d:
-        return f"{name}\nlr={d['lr']:.0e} bs={d['batch_size']}"
-    return name
+        parts.append(f"lr={d['lr']:.0e} bs={d['batch_size']}")
+    wd = d.get("weight_decay")
+    if wd is not None and abs(wd - 1e-4) > 1e-10:
+        parts.append(f"wd={wd:.0e}")
+    do = d.get("dropout")
+    if do:
+        parts.append(f"do={do}")
+    return f"{name}\n{' '.join(parts)}" if parts else name
+
+
+def _best_per_model(results: dict) -> dict[str, dict]:
+    """For each model_name keep the run with the highest best_val_acc.
+
+    Used so that bar-chart comparisons show one bar per model regardless of
+    how many hyperparameter runs exist per model.
+    """
+    best: dict[str, dict] = {}
+    for d in results.values():
+        name = d.get("model_name", "")
+        if name and (name not in best or d["best_val_acc"] > best[name]["best_val_acc"]):
+            best[name] = d
+    return best
 
 
 def plot_val_acc_comparison(intra: dict, cross: dict) -> None:
-    all_keys = sorted(set(intra) | set(cross))
-    if not all_keys:
+    # Group by model_name — pick the best run per model so each model gets
+    # exactly one bar pair even when multiple hyperparameter configs were run.
+    intra_best = _best_per_model(intra)
+    cross_best = _best_per_model(cross)
+    all_models = sorted(set(intra_best) | set(cross_best))
+    if not all_models:
         print("[skip] plot_val_acc_comparison — no result files found")
         return
 
-    x        = np.arange(len(all_keys))
-    w        = 0.35
-    intra_acc = [intra[k]["best_val_acc"] if k in intra else 0.0 for k in all_keys]
-    cross_acc = [cross[k]["best_val_acc"] if k in cross else 0.0 for k in all_keys]
-    labels    = [_run_label(intra.get(k) or cross.get(k)) for k in all_keys]
+    x         = np.arange(len(all_models))
+    w         = 0.35
+    intra_acc = [intra_best[m]["best_val_acc"] if m in intra_best else 0.0 for m in all_models]
+    cross_acc = [cross_best[m]["best_val_acc"] if m in cross_best else 0.0 for m in all_models]
+    labels    = [MODEL_LABELS.get(m, m) for m in all_models]
 
     fig, ax = plt.subplots(figsize=(9, 5))
     b1 = ax.bar(x - w / 2, intra_acc, w, label="Intra-subject", color="#4C72B0")
@@ -177,21 +206,22 @@ def plot_learning_curves(results: dict, scenario: str) -> None:
 # ── (d) train–test gap ─────────────────────────────────────────────────────────
 
 def plot_overfit_gap(intra: dict, cross: dict) -> None:
-    all_keys = sorted(set(intra) | set(cross))
-    if not all_keys:
+    # Group by model_name — best run per model for a clean per-model comparison.
+    intra_best = _best_per_model(intra)
+    cross_best = _best_per_model(cross)
+    all_models = sorted(set(intra_best) | set(cross_best))
+    if not all_models:
         print("[skip] plot_overfit_gap — no result files found")
         return
 
-    x      = np.arange(len(all_keys))
+    x      = np.arange(len(all_models))
     w      = 0.2
-    labels = [_run_label(intra.get(k) or cross.get(k)) for k in all_keys]
+    labels = [MODEL_LABELS.get(m, m) for m in all_models]
 
-    def _get(d, k, key): return d[k][key] if k in d else None
-
-    intra_train = [_get(intra, k, "final_train_acc") for k in all_keys]
-    intra_val   = [_get(intra, k, "best_val_acc")    for k in all_keys]
-    cross_train = [_get(cross, k, "final_train_acc") for k in all_keys]
-    cross_val   = [_get(cross, k, "best_val_acc")    for k in all_keys]
+    intra_train = [intra_best[m]["final_train_acc"] if m in intra_best else None for m in all_models]
+    intra_val   = [intra_best[m]["best_val_acc"]    if m in intra_best else None for m in all_models]
+    cross_train = [cross_best[m]["final_train_acc"] if m in cross_best else None for m in all_models]
+    cross_val   = [cross_best[m]["best_val_acc"]    if m in cross_best else None for m in all_models]
 
     fig, ax = plt.subplots(figsize=(10, 5))
 

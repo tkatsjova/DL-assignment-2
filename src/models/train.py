@@ -1,7 +1,7 @@
 import json
 import random
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import numpy as np
@@ -11,7 +11,7 @@ import torch.optim as optim
 from tqdm import tqdm
 
 from src.data.config import ORIGINAL_SAMPLING_RATE, DOWNSAMPLE_FACTOR, WINDOW_SECONDS, OVERLAP
-from src.data.data_loading import list_h5_files, extract_label_from_filename
+from src.data.data_loading import ID_TO_LABEL, list_h5_files, extract_label_from_filename
 from src.data.dataset import MEGWindowDataset, create_dataloader
 from src.models.model import SimpleCNN1D, ResNet1D, CNNGRU, EEGNet, CNNGRUAttention, MEGGraphNet
 
@@ -30,8 +30,15 @@ ES_PATIENCE  = 15
 # LR scheduler: halve LR if val_loss doesn't improve for this many epochs
 LR_PATIENCE  = 7
 
+# Regularisation — set once here so main.py can patch them without touching
+# this file.  WEIGHT_DECAY applies to AdamW; DROPOUT is forwarded to
+# CNNGRUAttention (None means use the model's built-in default).
+WEIGHT_DECAY: float       = 1e-4
+DROPOUT:      float | None = None
+
 # Auto-suffix encodes key hyperparameters so each experiment saves to its own
-# file — change LR or BATCH_SIZE and results won't overwrite each other.
+# file.  main.py will overwrite this before calling main() when running
+# non-default hyperparameter configs.
 RUN_SUFFIX = f"_lr{LR:.0e}_bs{BATCH_SIZE}"
 
 
@@ -87,18 +94,28 @@ def get_device() -> torch.device:
     return torch.device("cpu")
 
 
-def get_model(name: str, device: torch.device) -> nn.Module:
-    models = {
-        "simple_cnn":    lambda: SimpleCNN1D(num_channels=248, num_classes=4),
-        "resnet":        lambda: ResNet1D(num_channels=248, num_classes=4),
-        "cnn_gru":       lambda: CNNGRU(num_channels=248, num_classes=4),
-        "eegnet":        lambda: EEGNet(n_channels=248, n_timepoints=N_TIMEPOINTS, n_classes=4),
-        "cnn_gru_attn":  lambda: CNNGRUAttention(n_channels=248, n_classes=4),
-        "meg_graphnet":  lambda: MEGGraphNet(n_nodes=248, n_timepoints=N_TIMEPOINTS, n_classes=4),
-    }
-    if name not in models:
-        raise ValueError(f"Unknown model '{name}'. Options: {list(models)}")
-    return models[name]().to(device)
+def get_model(name: str, device: torch.device, dropout: float | None = None) -> nn.Module:
+    def make():
+        if name == "simple_cnn":
+            return SimpleCNN1D(num_channels=248, num_classes=4)
+        if name == "resnet":
+            return ResNet1D(num_channels=248, num_classes=4)
+        if name == "cnn_gru":
+            kwargs = {"num_channels": 248, "num_classes": 4}
+            if dropout is not None:
+                kwargs["dropout_rate"] = dropout
+            return CNNGRU(**kwargs)
+        if name == "eegnet":
+            return EEGNet(n_channels=248, n_timepoints=N_TIMEPOINTS, n_classes=4)
+        if name == "cnn_gru_attn":
+            kwargs = {"n_channels": 248, "n_classes": 4}
+            if dropout is not None:
+                kwargs["dropout_rate"] = dropout
+            return CNNGRUAttention(**kwargs)
+        if name == "meg_graphnet":
+            return MEGGraphNet(n_nodes=248, n_timepoints=N_TIMEPOINTS, n_classes=4)
+        raise ValueError(f"Unknown model '{name}'. Options: simple_cnn, resnet, cnn_gru, eegnet, cnn_gru_attn, meg_graphnet")
+    return make().to(device)
 
 
 def get_save_path(name: str, output_dir: Path) -> Path:
@@ -188,10 +205,10 @@ def main():
     train_loader = create_dataloader(train_data, batch_size=BATCH_SIZE, shuffle=True)
     val_loader   = create_dataloader(val_data,   batch_size=BATCH_SIZE, shuffle=False)
 
-    model   = get_model(MODEL_NAME, device)
+    model   = get_model(MODEL_NAME, device, dropout=DROPOUT)
     loss_fn = nn.CrossEntropyLoss()
 
-    optimizer = optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-4)
+    optimizer = optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
 
     # Halve LR when val_loss stops improving for LR_PATIENCE epochs
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
@@ -270,6 +287,8 @@ def main():
         "seed":             SEED,
         "lr":               LR,
         "batch_size":       BATCH_SIZE,
+        "weight_decay":     WEIGHT_DECAY,
+        "dropout":          DROPOUT,
         "best_epoch":       checkpoint["epoch"],
         "training_time_s":  round(training_time_s, 1),
         "final_train_acc":  round(final_train_acc, 4),

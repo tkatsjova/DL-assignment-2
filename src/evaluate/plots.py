@@ -64,7 +64,11 @@ def plot_confusion_matrix(cm: list[list[int]], model_name: str, split: str) -> N
 
 
 def plot_test_acc_comparison(eval_intra: dict, eval_cross: dict | None = None) -> None:
-    models  = list(MODEL_LABELS.keys())
+    present = set(eval_intra) | (set(eval_cross) if eval_cross else set())
+    models  = [m for m in MODEL_LABELS if m in present]
+    if not models:
+        print("[skip] plot_test_acc_comparison — no eval results found")
+        return
     labels  = [MODEL_LABELS[m] for m in models]
 
     intra_win  = [eval_intra.get(m, {}).get("window_level",  {}).get("accuracy", 0.0) for m in models]

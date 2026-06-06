@@ -231,6 +231,7 @@ class CNNGRU(nn.Module):
         num_classes: int = 4,
         cnn_channels: int = 64,
         gru_hidden_size: int = 64,
+        dropout_rate: float = 0.2,
     ):
         super().__init__()
 
@@ -255,7 +256,7 @@ class CNNGRU(nn.Module):
         )
 
         self.classifier = nn.Sequential(
-            nn.Dropout(0.2),
+            nn.Dropout(dropout_rate),
             nn.Linear(gru_hidden_size * 2, num_classes),
         )
 
