@@ -17,8 +17,6 @@ venv/
 notes.md
 
 # experiment outputs / generated artifacts
-/outputs/
-*.pt
 *.pth
 *.ckpt
 *.jsonl
