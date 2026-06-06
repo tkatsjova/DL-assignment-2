@@ -19,12 +19,12 @@ from src.data.data_loading import ID_TO_LABEL
 CLASS_NAMES = [ID_TO_LABEL[i] for i in range(4)]
 
 MODEL_LABELS = {
-    "simple_cnn":    "SimpleCNN",
-    "resnet":        "ResNet",
-    "cnn_gru":       "CNN-GRU",
-    "eegnet":        "EEGNet",
-    "cnn_gru_attn":  "CNN-GRU-Attn",
-    "meg_graphnet":  "MEGGraphNet",
+    "simple_cnn": "SimpleCNN",
+    "resnet": "ResNet",
+    "cnn_gru": "CNN-GRU",
+    "eegnet": "EEGNet",
+    "cnn_gru_attn": "CNN-GRU-Attn",
+    "meg_graphnet": "MEGGraphNet",
 }
 
 PLOT_DIR = Path("outputs/plots")
@@ -32,9 +32,8 @@ PLOT_DIR = Path("outputs/plots")
 
 def plot_confusion_matrix(cm: list[list[int]], model_name: str, split: str) -> None:
     cm_arr = np.array(cm)
-    # Normalise rows to proportions for readability
     row_sums = cm_arr.sum(axis=1, keepdims=True)
-    cm_norm  = np.where(row_sums > 0, cm_arr / row_sums, 0.0)
+    cm_norm = np.where(row_sums > 0, cm_arr / row_sums, 0.0)
 
     fig, ax = plt.subplots(figsize=(5, 4))
     im = ax.imshow(cm_norm, vmin=0, vmax=1, cmap="Blues")
@@ -51,7 +50,7 @@ def plot_confusion_matrix(cm: list[list[int]], model_name: str, split: str) -> N
     for i in range(len(CLASS_NAMES)):
         for j in range(len(CLASS_NAMES)):
             count = cm_arr[i, j]
-            pct   = cm_norm[i, j]
+            pct = cm_norm[i, j]
             color = "white" if pct > 0.55 else "black"
             ax.text(j, i, f"{count}\n({pct:.0%})", ha="center", va="center",
                     fontsize=8, color=color)
@@ -65,14 +64,14 @@ def plot_confusion_matrix(cm: list[list[int]], model_name: str, split: str) -> N
 
 def plot_test_acc_comparison(eval_intra: dict, eval_cross: dict | None = None) -> None:
     present = set(eval_intra) | (set(eval_cross) if eval_cross else set())
-    models  = [m for m in MODEL_LABELS if m in present]
+    models = [m for m in MODEL_LABELS if m in present]
     if not models:
         print("[skip] plot_test_acc_comparison — no eval results found")
         return
-    labels  = [MODEL_LABELS[m] for m in models]
+    labels = [MODEL_LABELS[m] for m in models]
 
-    intra_win  = [eval_intra.get(m, {}).get("window_level",  {}).get("accuracy", 0.0) for m in models]
-    intra_file = [eval_intra.get(m, {}).get("file_majority_vote_accuracy", 0.0)        for m in models]
+    intra_win = [eval_intra.get(m, {}).get("window_level", {}).get("accuracy", 0.0) for m in models]
+    intra_file = [eval_intra.get(m, {}).get("file_majority_vote_accuracy", 0.0) for m in models]
 
     x = np.arange(len(models))
     w = 0.2
@@ -93,7 +92,7 @@ def plot_test_acc_comparison(eval_intra: dict, eval_cross: dict | None = None) -
                 cross_win.append(0.0)
                 cross_file.append(0.0)
 
-        b3 = ax.bar(x + w * 0.5, cross_win,  w, label="Cross — window",    color="#DD8452", alpha=0.9)
+        b3 = ax.bar(x + w * 0.5, cross_win, w, label="Cross — window", color="#DD8452", alpha=0.9)
         b4 = ax.bar(x + w * 1.5, cross_file, w, label="Cross — file vote", color="#DD8452", alpha=0.55)
         for b in (b3, b4):
             ax.bar_label(b, fmt="%.2f", fontsize=6, padding=2)
@@ -121,16 +120,16 @@ def plot_per_class_f1(eval_results: dict, split_label: str, filename: str) -> No
     if not models:
         return
 
-    x      = np.arange(len(CLASS_NAMES))
-    n      = len(models)
-    width  = 0.8 / n
+    x = np.arange(len(CLASS_NAMES))
+    n = len(models)
+    width = 0.8 / n
     colors = plt.cm.tab10(np.linspace(0, 0.6, n))
 
     fig, ax = plt.subplots(figsize=(8, 4))
     for i, model in enumerate(models):
         per_class = eval_results[model].get("window_level", eval_results[model]).get("per_class", {})
         f1_values = [per_class.get(cls, {}).get("f1", 0.0) for cls in CLASS_NAMES]
-        offset    = (i - n / 2 + 0.5) * width
+        offset = (i - n / 2 + 0.5) * width
         ax.bar(x + offset, f1_values, width, label=MODEL_LABELS[model],
                color=colors[i], alpha=0.85, edgecolor="white")
 

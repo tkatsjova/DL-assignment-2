@@ -19,16 +19,15 @@ import matplotlib.ticker as mticker
 import numpy as np
 
 OUTPUT_DIR = Path("outputs")
-PLOT_DIR   = OUTPUT_DIR / "plots"
+PLOT_DIR = OUTPUT_DIR / "plots"
 
-# Pretty display names for model keys
 MODEL_LABELS = {
-    "simple_cnn":    "SimpleCNN1D",
-    "resnet":        "ResNet1D",
-    "cnn_gru":       "CNN-GRU",
-    "eegnet":        "EEGNet",
-    "cnn_gru_attn":  "CNN-GRU-Attn",
-    "meg_graphnet":  "MEGGraphNet",
+    "simple_cnn": "SimpleCNN1D",
+    "resnet": "ResNet1D",
+    "cnn_gru": "CNN-GRU",
+    "eegnet": "EEGNet",
+    "cnn_gru_attn": "CNN-GRU-Attn",
+    "meg_graphnet": "MEGGraphNet",
 }
 
 
@@ -65,7 +64,7 @@ def plot_param_count(intra: dict, cross: dict) -> None:
     for d in merged.values():
         seen.setdefault(d["model_name"], d["n_params"])
     models = sorted(seen.items(), key=lambda x: x[1])
-    names  = [MODEL_LABELS.get(m, m) for m, _ in models]
+    names = [MODEL_LABELS.get(m, m) for m, _ in models]
     params = [p for _, p in models]
 
     fig, ax = plt.subplots(figsize=(8, 4))
@@ -90,7 +89,7 @@ def _run_label(d: dict) -> str:
     WD and dropout are appended only when they differ from the 1e-4 default,
     so baseline runs stay concise and comparison runs are self-annotating.
     """
-    name  = MODEL_LABELS.get(d["model_name"], d["model_name"])
+    name = MODEL_LABELS.get(d["model_name"], d["model_name"])
     parts = []
     if "lr" in d and "batch_size" in d:
         parts.append(f"lr={d['lr']:.0e} bs={d['batch_size']}")
@@ -127,11 +126,11 @@ def plot_val_acc_comparison(intra: dict, cross: dict) -> None:
         print("[skip] plot_val_acc_comparison — no result files found")
         return
 
-    x         = np.arange(len(all_models))
-    w         = 0.35
+    x = np.arange(len(all_models))
+    w = 0.35
     intra_acc = [intra_best[m]["best_val_acc"] if m in intra_best else 0.0 for m in all_models]
     cross_acc = [cross_best[m]["best_val_acc"] if m in cross_best else 0.0 for m in all_models]
-    labels    = [MODEL_LABELS.get(m, m) for m in all_models]
+    labels = [MODEL_LABELS.get(m, m) for m in all_models]
 
     fig, ax = plt.subplots(figsize=(9, 5))
     b1 = ax.bar(x - w / 2, intra_acc, w, label="Intra-subject", color="#4C72B0")
@@ -165,11 +164,11 @@ def plot_learning_curves(results: dict, scenario: str) -> None:
             print(f"  [skip] {stem} — empty history")
             continue
 
-        epochs     = [h["epoch"]      for h in history]
+        epochs = [h["epoch"] for h in history]
         train_loss = [h["train_loss"] for h in history]
-        val_loss   = [h["val_loss"]   for h in history]
-        train_acc  = [h["train_acc"]  for h in history]
-        val_acc    = [h["val_acc"]    for h in history]
+        val_loss = [h["val_loss"] for h in history]
+        train_acc = [h["train_acc"] for h in history]
+        val_acc = [h["val_acc"] for h in history]
 
         fig, (ax_loss, ax_acc) = plt.subplots(1, 2, figsize=(11, 4))
 
@@ -214,19 +213,19 @@ def plot_overfit_gap(intra: dict, cross: dict) -> None:
         print("[skip] plot_overfit_gap — no result files found")
         return
 
-    x      = np.arange(len(all_models))
-    w      = 0.2
+    x = np.arange(len(all_models))
+    w = 0.2
     labels = [MODEL_LABELS.get(m, m) for m in all_models]
 
     intra_train = [intra_best[m]["final_train_acc"] if m in intra_best else None for m in all_models]
-    intra_val   = [intra_best[m]["best_val_acc"]    if m in intra_best else None for m in all_models]
+    intra_val = [intra_best[m]["best_val_acc"] if m in intra_best else None for m in all_models]
     cross_train = [cross_best[m]["final_train_acc"] if m in cross_best else None for m in all_models]
-    cross_val   = [cross_best[m]["best_val_acc"]    if m in cross_best else None for m in all_models]
+    cross_val = [cross_best[m]["best_val_acc"] if m in cross_best else None for m in all_models]
 
     fig, ax = plt.subplots(figsize=(10, 5))
 
     def _bar(pos, values, color, label, hatch=""):
-        vals  = [v if v is not None else 0.0 for v in values]
+        vals = [v if v is not None else 0.0 for v in values]
         valid = [v is not None for v in values]
         b = ax.bar(pos, vals, w, color=color, label=label,
                    hatch=hatch, edgecolor="white", alpha=0.85)
@@ -301,8 +300,8 @@ def plot_true_train_test_gap(
     if not all_models:
         return
 
-    x     = np.arange(len(all_models))
-    w     = 0.13
+    x = np.arange(len(all_models))
+    w = 0.13
     names = [MODEL_LABELS.get(m, m) for m in all_models]
 
     # Prefer eval-mode train accuracy (no dropout) over training-phase final_train_acc
@@ -312,21 +311,21 @@ def plot_true_train_test_gap(
             v = train_d.get("final_train_acc")
         return v
 
-    intra_tr   = [_train_acc(eval_intra.get(m, {}), intra_best.get(m, {})) for m in all_models]
-    intra_val  = [intra_best.get(m, {}).get("best_val_acc")                 for m in all_models]
+    intra_tr = [_train_acc(eval_intra.get(m, {}), intra_best.get(m, {})) for m in all_models]
+    intra_val = [intra_best.get(m, {}).get("best_val_acc") for m in all_models]
     intra_test = [eval_intra.get(m, {}).get("window_level", {}).get("accuracy") for m in all_models]
 
-    cross_tr  = [_train_acc(eval_cross.get(m, {}), cross_best.get(m, {})) for m in all_models]
-    cross_val = [cross_best.get(m, {}).get("best_val_acc")                 for m in all_models]
+    cross_tr = [_train_acc(eval_cross.get(m, {}), cross_best.get(m, {})) for m in all_models]
+    cross_val = [cross_best.get(m, {}).get("best_val_acc") for m in all_models]
 
     # Use precomputed avg if available, otherwise compute from test_sets
     cross_test = []
     for m in all_models:
-        r   = eval_cross.get(m, {})
+        r = eval_cross.get(m, {})
         avg = r.get("avg_test_window_accuracy")
         if avg is None:
             accs = [s.get("accuracy", 0.0) for s in r.get("test_sets", {}).values()]
-            avg  = float(np.mean(accs)) if accs else None
+            avg = float(np.mean(accs)) if accs else None
         cross_test.append(avg)
 
     palette = [
@@ -341,7 +340,7 @@ def plot_true_train_test_gap(
     fig, ax = plt.subplots(figsize=(12, 5))
 
     def _bar(offset, values, color, label):
-        vals  = [v if v is not None else 0.0 for v in values]
+        vals = [v if v is not None else 0.0 for v in values]
         valid = [v is not None for v in values]
         bars = ax.bar(x + offset * w, vals, w * 0.92,
                       color=color, label=label, alpha=0.88, edgecolor="white")

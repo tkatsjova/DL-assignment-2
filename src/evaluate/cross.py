@@ -41,7 +41,7 @@ def _eval_acc_chunked(model, files: list, device, chunk_size: int = TRAIN_EVAL_C
 
 
 def run(data_dir: Path, output_dir: Path) -> dict:
-    device      = get_device()
+    device = get_device()
     train_files = list_h5_files(data_dir / "Cross" / "train")
 
     print(f"Device: {device}")
@@ -66,10 +66,10 @@ def run(data_dir: Path, output_dir: Path) -> dict:
         print(f"  Train eval accuracy (eval mode, for gap): {train_eval_acc:.4f}")
 
         model_results = {
-            "val_accuracy":        val_acc,
-            "best_epoch":          best_epoch,
+            "val_accuracy": val_acc,
+            "best_epoch": best_epoch,
             "train_eval_accuracy": train_eval_acc,
-            "test_sets":           {},
+            "test_sets": {},
         }
 
         for split in TEST_SPLITS:
@@ -87,11 +87,10 @@ def run(data_dir: Path, output_dir: Path) -> dict:
             split_metrics["file_majority_vote_accuracy"] = mv_acc
             model_results["test_sets"][split] = split_metrics
 
-        # Summary across test sets
-        accs    = [model_results["test_sets"][s]["accuracy"]                    for s in TEST_SPLITS if s in model_results["test_sets"]]
+        accs = [model_results["test_sets"][s]["accuracy"] for s in TEST_SPLITS if s in model_results["test_sets"]]
         mv_accs = [model_results["test_sets"][s]["file_majority_vote_accuracy"] for s in TEST_SPLITS if s in model_results["test_sets"]]
         if accs:
-            model_results["avg_test_window_accuracy"]    = round(float(np.mean(accs)),    4)
+            model_results["avg_test_window_accuracy"] = round(float(np.mean(accs)), 4)
             model_results["avg_test_file_vote_accuracy"] = round(float(np.mean(mv_accs)), 4)
             print(f"\n  Avg window accuracy  (test1-3): {model_results['avg_test_window_accuracy']:.4f}")
             print(f"  Avg file vote accuracy (test1-3): {model_results['avg_test_file_vote_accuracy']:.4f}")
