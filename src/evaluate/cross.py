@@ -14,7 +14,7 @@ from src.evaluate.core import (
 )
 from src.evaluate.plots import generate_all_cross_plots
 
-MODELS = ["simple_cnn", "resnet", "cnn_gru", "eegnet", "cnn_gru_attn", "meg_graphnet"]
+MODELS = ["simple_cnn", "resnet", "cnn_gru", "eegnet", "cnn_gru_attn"]
 
 TEST_SPLITS = ["test1", "test2", "test3"]
 

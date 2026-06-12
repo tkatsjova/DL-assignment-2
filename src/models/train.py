@@ -13,13 +13,13 @@ from tqdm import tqdm
 from src.data.config import ORIGINAL_SAMPLING_RATE, DOWNSAMPLE_FACTOR, WINDOW_SECONDS, OVERLAP
 from src.data.data_loading import ID_TO_LABEL, list_h5_files, extract_label_from_filename
 from src.data.dataset import MEGWindowDataset, create_dataloader
-from src.models.model import SimpleCNN1D, ResNet1D, CNNGRU, EEGNet, CNNGRUAttention, MEGGraphNet
+from src.models.model import SimpleCNN1D, ResNet1D, CNNGRU, EEGNet, CNNGRUAttention
 
 N_TIMEPOINTS = int(WINDOW_SECONDS * ORIGINAL_SAMPLING_RATE / DOWNSAMPLE_FACTOR)
 
 
 MODEL_NAME = "cnn_gru"
-# options: "simple_cnn" | "resnet" | "cnn_gru" | "eegnet" | "cnn_gru_attn" | "meg_graphnet"
+# options: "simple_cnn" | "resnet" | "cnn_gru" | "eegnet" | "cnn_gru_attn"
 
 SEED = 42
 N_EPOCHS = 100  # early stopping decides the actual stopping point
@@ -105,9 +105,7 @@ def get_model(name: str, device: torch.device, dropout: float | None = None) -> 
             if dropout is not None:
                 kwargs["dropout_rate"] = dropout
             return CNNGRUAttention(**kwargs)
-        if name == "meg_graphnet":
-            return MEGGraphNet(n_nodes=248, n_timepoints=N_TIMEPOINTS, n_classes=4)
-        raise ValueError(f"Unknown model '{name}'. Options: simple_cnn, resnet, cnn_gru, eegnet, cnn_gru_attn, meg_graphnet")
+        raise ValueError(f"Unknown model '{name}'. Options: simple_cnn, resnet, cnn_gru, eegnet, cnn_gru_attn")
     return make().to(device)
 
 

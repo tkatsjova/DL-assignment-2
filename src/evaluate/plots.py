@@ -24,7 +24,6 @@ MODEL_LABELS = {
     "cnn_gru": "CNN-GRU",
     "eegnet": "EEGNet",
     "cnn_gru_attn": "CNN-GRU-Attn",
-    "meg_graphnet": "MEGGraphNet",
 }
 
 PLOT_DIR = Path("outputs/plots")

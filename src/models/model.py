@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 # Block 1: temporal conv → depthwise (spatial) conv
@@ -291,73 +290,3 @@ class CNNGRUAttention(nn.Module):
         context = (weights * gru_out).sum(dim=1)
 
         return self.classifier(context)
-
-
-class GCNLayer(nn.Module):
-
-    def __init__(self, in_features: int, out_features: int):
-        super().__init__()
-        self.linear = nn.Linear(in_features, out_features, bias=False)
-        self.norm = nn.LayerNorm(out_features)
-
-    def forward(self, x: torch.Tensor, A: torch.Tensor) -> torch.Tensor:
-        x = self.linear(x)
-        x = torch.matmul(A, x)
-        return F.relu(self.norm(x))
-
-
-# MEGGraphNet — treats 248 MEG sensors as graph nodes with a learnable adjacency matrix.
-# A_ij = softmax(ReLU(E @ E^T)) where E is a free parameter → functional connectivity
-# is learned from data rather than fixed by physical sensor distance.
-class MEGGraphNet(nn.Module):
-    def __init__(
-        self,
-        n_nodes: int = 248,  # MEG sensors = graph nodes
-        n_timepoints: int = 1017,
-        n_classes: int = 4,  # rest / math / memory / motor
-        node_feat_dim: int = 64,
-        emb_dim: int = 16,  # node embedding dim for adjacency
-        gcn_hidden: int = 64,
-        dropout_rate: float = 0.4,
-    ):
-        super().__init__()
-
-        self.node_proj = nn.Sequential(
-            nn.Linear(n_timepoints, node_feat_dim, bias=False),
-            nn.LayerNorm(node_feat_dim),
-            nn.ReLU(),
-        )
-
-        self.node_emb = nn.Parameter(torch.randn(n_nodes, emb_dim))
-
-        self.gcn1 = GCNLayer(node_feat_dim, gcn_hidden)
-        self.gcn2 = GCNLayer(gcn_hidden, gcn_hidden)
-        self.dropout = nn.Dropout(dropout_rate)
-
-        self.node_attention = nn.Linear(gcn_hidden, 1)
-
-        self.classifier = nn.Sequential(
-            nn.Dropout(dropout_rate),
-            nn.Linear(gcn_hidden, n_classes),
-        )
-
-    def _build_adjacency(self) -> torch.Tensor:
-        raw = torch.matmul(self.node_emb, self.node_emb.T)
-        raw = F.relu(raw)  # remove negative similarities
-        A = F.softmax(raw, dim=1)  # row-normalise → weighted average in GCN
-        return A
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        h = self.node_proj(x)
-
-        A = self._build_adjacency()
-
-        h = self.gcn1(h, A)
-        h = self.dropout(h)
-        h = self.gcn2(h, A)
-
-        scores = self.node_attention(h)
-        weights = torch.softmax(scores, dim=1)
-        graph_repr = (weights * h).sum(dim=1)
-
-        return self.classifier(graph_repr)

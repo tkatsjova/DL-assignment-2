@@ -12,7 +12,7 @@ from src.evaluate.core import (
 )
 from src.evaluate.plots import generate_all_intra_plots
 
-MODELS = ["simple_cnn", "resnet", "cnn_gru", "eegnet", "cnn_gru_attn", "meg_graphnet"]
+MODELS = ["simple_cnn", "resnet", "cnn_gru", "eegnet", "cnn_gru_attn"]
 
 DATASET_PARAMS = dict(
     original_sampling_rate=ORIGINAL_SAMPLING_RATE,
