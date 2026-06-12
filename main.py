@@ -31,7 +31,6 @@ MODELS = [
     "cnn_gru",
     "eegnet",
     "cnn_gru_attn",
-    "meg_graphnet",
 ]
 
 FINAL_CONFIGS = [

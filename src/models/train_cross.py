@@ -15,7 +15,7 @@ from src.data.dataset import MEGWindowDataset, create_dataloader
 from src.models.train import set_seed, get_device, get_model, stratified_split, check_accuracy
 
 MODEL_NAME = "cnn_gru"
-# options: "simple_cnn" | "resnet" | "cnn_gru" | "eegnet" | "cnn_gru_attn" | "meg_graphnet"
+# options: "simple_cnn" | "resnet" | "cnn_gru" | "eegnet" | "cnn_gru_attn"
 
 SEED = 42
 N_EPOCHS = 100
